@@ -1,0 +1,5 @@
+#!/bin/sh
+
+DB_CONNECT_STRING=""
+DB_USERNAME="sam"
+DB_PASSWORD="test"

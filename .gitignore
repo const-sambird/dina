@@ -1,1 +1,4 @@
 zzz_existing_code/
+tpc-h/
+.venv/
+__pycache__/
