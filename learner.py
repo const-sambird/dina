@@ -6,7 +6,8 @@ from itertools import count
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
+
+import numpy as np
 
 from matplotlib import pyplot as plt
 import gymnasium as gym
@@ -36,7 +37,7 @@ LEARNING_RATE = 1e-4
 
 ALPHA = 0.5
 BETA = 0.5
-SPACE_BUDGET = 20000
+SPACE_BUDGET = 200000
 
 '''
 ENVIRONMENT
@@ -48,16 +49,16 @@ gym.register(
     id='gymnasium_env/IndexSelectionEnv',
     entry_point=IndexSelectionEnv
 )
-env = gym.make('IndexSelectionEnv', 1000, None, replicas, p.candidates, p.templates, SPACE_BUDGET, ALPHA, BETA, mode = 'cost')
+env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, replicas=replicas, candidates=p.candidates, cols_to_table=p.cols_to_table, candidate_sizes=p.candidate_sizes, templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA, mode = 'cost')
 
 # Get number of actions from gym action space
 n_actions = env.action_space.n
 # Get the number of state observations
 state, info = env.reset()
-n_observations = len(state)
+n_observations = np.size(state)
 
-policy_net = DQN(n_observations, n_actions).to(device)
-target_net = DQN(n_observations, n_actions).to(device)
+policy_net = DQN(n_observations, n_actions, [128, 128]).to(device)
+target_net = DQN(n_observations, n_actions, [128, 128]).to(device)
 target_net.load_state_dict(policy_net.state_dict())
 
 optimizer = optim.AdamW(policy_net.parameters(), lr=LEARNING_RATE, amsgrad=True)
@@ -156,6 +157,7 @@ def learn():
         num_episodes = 50
 
     for i_episode in range(num_episodes):
+        print('*** this is episode', i_episode)
         # Initialize the environment and get its state
         state, info = env.reset()
         state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
@@ -199,3 +201,4 @@ def learn():
 
     return state
 
+print(learn())

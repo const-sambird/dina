@@ -4,10 +4,10 @@ import psycopg
 import re
 from random import randrange
 
-from util import extract_table_from_query
+from util import extract_columns_from_query, insert_dummy_values, construct_indexes_from_candidate
 
 class IndexSelectionEnv(gym.Env):
-    def __init__(self, replicas, candidates, candidate_sizes, templates, space_budget, alpha, beta, mode = 'cost'):
+    def __init__(self, replicas, candidates, candidate_sizes, cols_to_table, templates, queries, space_budget, alpha, beta, mode = 'cost'):
         '''
         The mode is how DINA evaluates rewards.
         - `cost`: we use PostgreSQL's cost estimator to evaluate the performance of indexes
@@ -16,9 +16,12 @@ class IndexSelectionEnv(gym.Env):
         `cost` is the default but one must be chosen
         '''
         assert mode == 'cost' or mode == 'exe', 'unknown execution mode!'
+        assert len(candidates) > 0, 'no candidate indexes! is the space budget prohibitively small?'
+
         self.replicas = replicas
         self.candidates = candidates
         self.candidate_sizes = candidate_sizes
+        self.cols_to_table = cols_to_table
         self.mode = mode
         self.space_budget = space_budget
         self.alpha = alpha
@@ -30,6 +33,7 @@ class IndexSelectionEnv(gym.Env):
         self.num_replicas = len(replicas)
         self.num_candidates = len(candidates)
         self.templates = templates
+        self.queries = queries
 
         self._state = np.zeros((self.num_replicas, self.num_candidates))
         
@@ -72,7 +76,7 @@ class IndexSelectionEnv(gym.Env):
         candidate_to_add = action % self.num_candidates
         replica_to_update = action // self.num_candidates
 
-        required_space = self.candidate_sizes[candidate_to_add]
+        required_space = self.candidate_sizes[self.candidates[candidate_to_add]]
         if required_space < self.space_budget - self.spaces_used[replica_to_update]:
             self._drop_candidates_to_free(required_space, replica_to_update, candidate_to_add)
 
@@ -89,6 +93,10 @@ class IndexSelectionEnv(gym.Env):
         return observation, reward, terminated, truncated, info
 
     def reward(self, proposed_configuration, updated_replica):
+        print('transition...')
+        print('replica', updated_replica)
+        print('proposed configuration', proposed_configuration)
+        print('\n', flush=True)
         benchmark_fn = None
         if self.mode == 'cost':
             benchmark_fn = self._benchmark_index_cost
@@ -97,12 +105,10 @@ class IndexSelectionEnv(gym.Env):
         
         total_cost = 0
         replica_costs = [x for x in self.replica_cache]
-        for template in self.templates:
-            if cost := benchmark_fn(template,
-                                    extract_table_from_query(template),
-                                    proposed_configuration,
-                                    updated_replica):
-                total_cost += cost
+        
+        candidate = construct_indexes_from_candidate(proposed_configuration, self.cols_to_table)
+        total_cost = benchmark_fn(self.queries, candidate, updated_replica)
+
         replica_costs[updated_replica] = total_cost
         total_cost = sum(replica_costs)
         
@@ -120,64 +126,77 @@ class IndexSelectionEnv(gym.Env):
             this_skew = abs(cost - bestcase)
             skew += this_skew / bestcase
         
+        if skew == 0:
+            return 1000
         return 1 / skew
 
-    def _benchmark_index_exe(self, query: str, table: str, cols_to_index: list[str], replica: str) -> float | None:
+    def _benchmark_index_exe(self, queries: list[str], candidate: dict[str, list[str]], replica: str) -> float | None:
         '''
-        Returns the *actual execution time* of the given query,
+        Returns the *actual execution time* of the given queries,
         provided that the candidate index described in `cols_to_index`
-        is constructed on the table.
+        is constructed on the table(s).
 
         Returns None if it is not possible to benchmark this candidate.
         '''
-        with psycopg.connect('dbname=dina user=sam') as conn:
-            with conn.cursor() as cur:
-                REGEX = '(([0-9]|\\.)+)'
-                
-                select_table = table
-                if '.' in table:
-                    select_table = table.split('.')[0]
-                
-                cur.execute('CREATE INDEX candidate_index ON %s (%s);' % (table, ', '.join(cols_to_index)))
-                cur.execute('EXPLAIN ANALYZE %s;' % query)
+        try:
+            with psycopg.connect('dbname=tpchdb user=sam') as conn:
+                with conn.cursor() as cur:
+                    REGEX = '(([0-9]|\\.)+)'
+                    indexes_required = 0
+                    cost = 0
+                    
+                    for table, columns in candidate.items():
+                        indexes_required += 1
+                        cur.execute('CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns)))
+                    
+                    for query in queries:
+                        cur.execute('EXPLAIN ANALYZE %s;' % query)
+                        if after_timing := re.search(REGEX, cur.fetchall()[-1], re.IGNORECASE):
+                            cost += float(after_timing.group(1))
+                    
+                    while indexes_required > 0:
+                        cur.execute('DROP INDEX candidate_index_%d;' % indexes_required)
+                        indexes_required -= 1
 
-                if after_timing := re.search(REGEX, cur.fetchall()[-1], re.IGNORECASE):
-                    toc = float(after_timing.group(1))
-                else:
-                    cur.execute('DROP INDEX "%s"."candidate_index";' % select_table)
-                    return None
+                    return cost
+        except Exception as err:
+            print('got an exception in the database connection')
+            print(err)
 
-                cur.execute('DROP INDEX "%s"."candidate_index";' % select_table)
-                return toc
-    
-    def _benchmark_index_cost(self, query: str, table: str, cols_to_index: list[str], replica: str) -> float | None:
+    def _benchmark_index_cost(self, queries: list[str], candidate: dict[str, list[str]], replica: str) -> float | None:
         '''
-        Returns the *estimated execution cost* of the given query,
+        Returns the *estimated execution cost* of the given queries,
         as given by PostgreSQL's cost estimation module, provided
         that the candidate index described in `cols_to_index` is
-        constructed on the table.
+        constructed on the table(s).
 
         Returns None if it is not possible to benchmark this candidate.
         '''
-        with psycopg.connect('dbname=dina user=sam') as conn:
+        #try:
+        with psycopg.connect('dbname=tpchdb user=sam') as conn:
             with conn.cursor() as cur:
                 REGEX = 'cost=([0-9]+\\.[0-9]+)'
                 
-                select_table = table
-                if '.' in table:
-                    select_table = table.split('.')[0]
-
-                cur.execute('CREATE INDEX candidate_index ON %s (%s);' % (table, ', '.join(cols_to_index)))
-                cur.execute('EXPLAIN %s;' % query)
-
-                if after_timing := re.search(REGEX, cur.fetchone(), re.IGNORECASE):
-                    toc = float(after_timing.group(1))
-                else:
-                    cur.execute('DROP INDEX "%s"."candidate_index";' % select_table)
-                    return None
-
-                cur.execute('DROP INDEX "%s"."candidate_index";' % select_table)
-                return toc
+                indexes_required = 0
+                cost = 0
+                
+                for table, columns in candidate.items():
+                    indexes_required += 1
+                    cur.execute('CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns)))
+                
+                for query in queries:
+                    cur.execute('EXPLAIN %s;' % query)
+                    if after_timing := re.search(REGEX, cur.fetchone()[0], re.IGNORECASE):
+                        cost += float(after_timing.group(1))
+                
+                while indexes_required > 0:
+                    cur.execute('DROP INDEX candidate_index_%d;' % indexes_required)
+                    indexes_required -= 1
+                
+                return cost
+        #except Exception as err:
+        #    print('got an exception in the database connection')
+        #    print(err)
     
     def _compute_baseline(self):
         benchmark_fn = None
@@ -188,9 +207,8 @@ class IndexSelectionEnv(gym.Env):
 
         baseline = 0
         for replica in self.replicas:
-            for template in self.templates:
-                if cost := benchmark_fn(template, extract_table_from_query(template), [], replica):
-                    baseline += cost
+            if cost := benchmark_fn(self.queries, {}, replica):
+                baseline += cost
         
         self.baseline = baseline
 
@@ -207,7 +225,7 @@ class IndexSelectionEnv(gym.Env):
             if idx_to_drop == target_candidate_idx:
                 continue
 
-            space_freed += self.candidate_sizes[idx_to_drop]
+            space_freed += self.candidate_sizes[self.candidates[idx_to_drop]]
             dropped.append(idx_to_drop)
         
         for idx in dropped:

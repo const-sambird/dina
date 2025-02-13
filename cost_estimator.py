@@ -1,5 +1,6 @@
 import psycopg
 import re
+from util import insert_dummy_values
 
 class CostEstimator:
     def __init__(self, workload_matrix, templates, candidates, tables, replicas, space_budget):
@@ -14,22 +15,27 @@ class CostEstimator:
         total_cost = 0
         REGEX = '(([0-9]|\.)+)'
 
-        with psycopg.connect('dbname=dina user=sam') as conn: # FIXME: num_replica conns
-            with conn.cursor() as cur:
-                for i, element in enumerate(configuration):
-                    cur.execute('CREATE INDEX configured_index_%d ON %s (%s);' % (i, element['table'], ', '.join(element['columns'])))
-                
-                for query in queries:
-                    cur.execute('EXPLAIN ANALYZE %s;' % query)
-                    if after_timing := re.search(REGEX, cur.fetchall()[-1], re.IGNORECASE):
-                        total_cost += float(after_timing.group(1))
-                    else:
-                        # uh oh!
-                        pass
-                
-                for i in range(len(configuration)):
-                    cur.execute('DROP INDEX configured_index_%d;' % i)
-        
+        try:
+            with psycopg.connect('dbname=tpchdb user=sam') as conn: # FIXME: num_replica conns
+                with conn.cursor() as cur:
+                    for i, element in enumerate(configuration):
+                        cur.execute('CREATE INDEX configured_index_%d ON %s (%s);' % (i, element['table'], ', '.join(element['columns'])))
+                    
+                    for query in queries:
+                        query = insert_dummy_values(query)
+                        cur.execute('EXPLAIN ANALYZE %s;' % query)
+                        if after_timing := re.search(REGEX, cur.fetchall()[-1], re.IGNORECASE):
+                            total_cost += float(after_timing.group(1))
+                        else:
+                            # uh oh!
+                            pass
+                    
+                    for i in range(len(configuration)):
+                        cur.execute('DROP INDEX configured_index_%d;' % i)
+        except Exception as err:
+            print('got an exception in the database connection')
+            print(err)
+
         return total_cost
     
     def query_cost_for_index_config(self, configuration, queries, replicas):

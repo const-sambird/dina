@@ -1,7 +1,7 @@
 import pickle
 import psycopg
 import re
-from util import powerset, extract_table_from_query
+from util import powerset, extract_columns_from_query, construct_indexes_from_candidate
 
 QUERY_TEMPLATE_PATH     = './QueryBot5000/templates.txt'
 CLUSTER_ASSIGNMENT_PATH = './QueryBot5000/online-clustering-results/None-0.8-assignments.pickle'
@@ -31,70 +31,70 @@ class Preprocessor:
         self._read_columns()
         self.get_indexable_columns(self.templates)
         self.get_candidate_indexes(space_budget)
+
+        print(self.candidates)
     
     def _read_templates(self, path = './QueryBot5000/templates.txt'):
         with open(path, 'r') as infile:
             return infile.readlines()
 
     def _read_tables(self, templates):
-        tables = set()
-        next_templates = []
-
-        for template in templates:
-            if table_name := extract_table_from_query(template):
-                if not table_name.startswith('pg_'): # ignore system tables
-                    tables.add(table_name)
-                    next_templates.append(template)
-        
-        self.tables = list(tables)
-        self.templates = next_templates
+        with psycopg.connect('dbname=tpchdb user=sam') as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT table_name FROM information_schema.tables WHERE table_schema = \'public\';')
+                self.tables = [name[0] for name in cur.fetchall()]
     
     def _read_columns(self):
         assert len(self.tables) > 0, 'trying to read columns before tables!'
 
-        self.columns = {}
+        self.columns = []
+        self.cols_to_table = {}
 
         QUERY_TEMPLATE = "SELECT * FROM %s LIMIT 0;"
 
-        with psycopg.connect('dbname=dina user=sam') as conn:
-            with conn.cursor() as cur:
-                for table in self.tables:
-                    cur.execute(QUERY_TEMPLATE % table)
-                    self.columns[table] = [desc[0] for desc in cur.description]
+        try:
+            with psycopg.connect('dbname=tpchdb user=sam') as conn:
+                with conn.cursor() as cur:
+                    for table in self.tables:
+                        cur.execute(QUERY_TEMPLATE % table)
+                        for desc in cur.description:
+                            self.columns.append(desc[0])
+                            self.cols_to_table[desc[0]] = table
+        except Exception as err:
+            print('got an exception in the database connection')
+            print(err)
     
     def get_indexable_columns(self, templates):
-        self.indexable = {}
+        self.indexable = set()
 
         for template in templates:
-            if table_name := extract_table_from_query(template):
-                if table_name not in self.indexable:
-                    self.indexable[table_name] = set()
-                
-                split = template.split(' WHERE ')
-                if len(split) != 2:
-                    continue
-
-                for column in self.columns[table_name]:
-                    if column in split[1]:
-                        self.indexable[table_name].add(column)
+            matches = extract_columns_from_query(template, self.cols_to_table)
+            for column in matches.values():
+                self.indexable = self.indexable.union(column)
     
     def get_candidate_indexes(self, space_budget):
-        self.candidates = {}
+        self.candidates = []
         self.candidate_sizes = {}
 
-        with psycopg.connect('dbname=dina user=sam') as conn:
-            with conn.cursor() as cur:
-                for table, cols in self.indexable.items():
-                    self.candidates[table] = []
-                    for candidate in powerset(cols):
+        try:
+            with psycopg.connect('dbname=tpchdb user=sam') as conn:
+                with conn.cursor() as cur:
+                    for candidate in self.indexable:
+                        candidate = (candidate,) # FIXME
                         if len(candidate) == 0: continue
-                        select_table = table
-                        if '.' in table:
-                            select_table = table.split('.')[0]
-                        cur.execute('CREATE INDEX candidate_index ON %s (%s);' % (table, ', '.join(candidate)))
-                        cur.execute("SELECT pg_table_size('%s.candidate_index');" % select_table)
-                        computed_size = cur.fetchone()[0]
+                        print('evaluating candidate:', candidate)
+                        computed_size = 0
+                        candidate_representation = construct_indexes_from_candidate(candidate, self.cols_to_table)
+                        print('---', candidate_representation)
+                        for table, columns in candidate_representation.items():
+                            cur.execute('CREATE INDEX candidate_index ON %s (%s);' % (table, ', '.join(columns)))
+                            cur.execute("SELECT pg_table_size('candidate_index');")
+                            computed_size += cur.fetchone()[0]
+                            cur.execute('DROP INDEX candidate_index;')
+                        print('--- computed size:', computed_size)
                         if space_budget > computed_size:
-                            self.candidates[table].append(candidate)
+                            self.candidates.append(candidate)
                             self.candidate_sizes[candidate] = computed_size
-                        cur.execute('DROP INDEX "%s"."candidate_index";' % select_table)
+        except Exception as err:
+            print('got an exception in the database connection')
+            print(err)
