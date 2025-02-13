@@ -2,7 +2,7 @@ import numpy as np
 import gymnasium as gym
 import psycopg
 import re
-from random import randrange
+from random import choice
 
 from util import extract_columns_from_query, insert_dummy_values, construct_indexes_from_candidate
 
@@ -63,7 +63,7 @@ class IndexSelectionEnv(gym.Env):
             'spaces_used': self.spaces_used
         }
     
-    def reset(self, seed, options):
+    def reset(self, seed=None, options=None):
         super().reset(seed=seed)
 
         self._state = np.zeros((self.num_replicas, self.num_candidates))
@@ -76,12 +76,14 @@ class IndexSelectionEnv(gym.Env):
         candidate_to_add = action % self.num_candidates
         replica_to_update = action // self.num_candidates
 
-        required_space = self.candidate_sizes[self.candidates[candidate_to_add]]
-        if required_space < self.space_budget - self.spaces_used[replica_to_update]:
-            self._drop_candidates_to_free(required_space, replica_to_update, candidate_to_add)
+        if self._state[replica_to_update][candidate_to_add] == 0:
+            required_space = self.candidate_sizes[self.candidates[candidate_to_add]]
+            available_space = self.space_budget - self.spaces_used[replica_to_update]
+            if required_space > available_space:
+                self._drop_candidates_to_free(required_space - available_space, replica_to_update, candidate_to_add)
 
-        self._state[replica_to_update][candidate_to_add] = 1
-        self.spaces_used[replica_to_update] += required_space
+            self._state[replica_to_update][candidate_to_add] = 1
+            self.spaces_used[replica_to_update] += required_space
 
         reward = self.reward(self.candidates[candidate_to_add], replica_to_update)
         observation = self._get_obs()
@@ -93,10 +95,6 @@ class IndexSelectionEnv(gym.Env):
         return observation, reward, terminated, truncated, info
 
     def reward(self, proposed_configuration, updated_replica):
-        print('transition...')
-        print('replica', updated_replica)
-        print('proposed configuration', proposed_configuration)
-        print('\n', flush=True)
         benchmark_fn = None
         if self.mode == 'cost':
             benchmark_fn = self._benchmark_index_cost
@@ -220,13 +218,13 @@ class IndexSelectionEnv(gym.Env):
         # fun fact this is the subset sum problem !
         space_freed = 0
         dropped = []
-        while space_freed < required_space:
-            idx_to_drop = randrange(self.num_candidates)
-            if idx_to_drop == target_candidate_idx:
-                continue
+        can_be_dropped = [i for i, e in enumerate(self._state[replica]) if e != 0]
 
+        while space_freed < required_space:
+            idx_to_drop = choice(can_be_dropped)
             space_freed += self.candidate_sizes[self.candidates[idx_to_drop]]
             dropped.append(idx_to_drop)
+            can_be_dropped.remove(idx_to_drop)
         
         for idx in dropped:
             self._state[replica][idx] = 0

@@ -39,7 +39,7 @@ NN_HIDDEN_LAYERS = [64, 64, 64]
 
 ALPHA = 0.5
 BETA = 0.5
-SPACE_BUDGET = 200000
+SPACE_BUDGET = 100000
 
 '''
 ENVIRONMENT
@@ -201,6 +201,15 @@ def learn():
     plt.ioff()
     plt.show()
 
-    return state
+    return state, info
 
-print(learn())
+config = learn()
+print('LEARNED CONFIGURATION')
+for idx, replica in enumerate(config[0].tolist()[0]):
+    print('--- replica', idx)
+    print('space:', config[1]['spaces_used'][idx], '/', SPACE_BUDGET)
+    print('indexes:')
+    print(replica)
+    for can_idx, include in enumerate(replica):
+        if include == 1:
+            print('-', p.candidates[can_idx], '(size: %d)' % p.candidate_sizes[p.candidates[can_idx]])
