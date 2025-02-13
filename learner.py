@@ -27,13 +27,15 @@ device = torch.device(
 HYPERPARAMETERS
 move into config
 '''
-BATCH_SIZE = 128
+BATCH_SIZE = 32
 DISCOUNT_RATE = 0.99
 EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 1000
 UPDATE_RATE = 0.005
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 0.001
+REPLAY_BUFFER_SIZE = 100000
+NN_HIDDEN_LAYERS = [64, 64, 64]
 
 ALPHA = 0.5
 BETA = 0.5
@@ -57,12 +59,12 @@ n_actions = env.action_space.n
 state, info = env.reset()
 n_observations = np.size(state)
 
-policy_net = DQN(n_observations, n_actions, [128, 128]).to(device)
-target_net = DQN(n_observations, n_actions, [128, 128]).to(device)
+policy_net = DQN(n_observations, n_actions, NN_HIDDEN_LAYERS).to(device)
+target_net = DQN(n_observations, n_actions, NN_HIDDEN_LAYERS).to(device)
 target_net.load_state_dict(policy_net.state_dict())
 
 optimizer = optim.AdamW(policy_net.parameters(), lr=LEARNING_RATE, amsgrad=True)
-memory = ReplayMemory(10000)
+memory = ReplayMemory(REPLAY_BUFFER_SIZE)
 
 
 steps_done = 0
