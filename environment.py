@@ -67,6 +67,8 @@ class IndexSelectionEnv(gym.Env):
         super().reset(seed=seed)
 
         self._state = np.zeros((self.num_replicas, self.num_candidates))
+        self.spaces_used = [0 for i in range(self.num_replicas)]
+        self.replica_cache = [0 for i in range(self.num_replicas)]
         observation = self._get_obs()
         info = self._get_info()
 
