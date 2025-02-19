@@ -5,9 +5,10 @@ import re
 from random import choice
 
 from util import extract_columns_from_query, insert_dummy_values, construct_indexes_from_candidate
+from profiling import Profiler
 
 class IndexSelectionEnv(gym.Env):
-    def __init__(self, replicas, candidates, candidate_sizes, cols_to_table, templates, queries, space_budget, alpha, beta, mode = 'cost'):
+    def __init__(self, profiler: Profiler, replicas, candidates, candidate_sizes, cols_to_table, templates, queries, space_budget, alpha, beta, mode = 'cost'):
         '''
         The mode is how DINA evaluates rewards.
         - `cost`: we use PostgreSQL's cost estimator to evaluate the performance of indexes
@@ -18,6 +19,7 @@ class IndexSelectionEnv(gym.Env):
         assert mode == 'cost' or mode == 'exe', 'unknown execution mode!'
         assert len(candidates) > 0, 'no candidate indexes! is the space budget prohibitively small?'
 
+        self.profiler = profiler
         self.replicas = replicas
         self.candidates = candidates
         self.candidate_sizes = candidate_sizes
@@ -75,6 +77,7 @@ class IndexSelectionEnv(gym.Env):
         return observation, info
     
     def step(self, action):
+        self.profiler.time_in('step')
         candidate_to_add = action % self.num_candidates
         replica_to_update = action // self.num_candidates
 
@@ -94,6 +97,8 @@ class IndexSelectionEnv(gym.Env):
         terminated = False # ?
         truncated = False
 
+        self.profiler.time_out()
+
         return observation, reward, terminated, truncated, info
 
     def reward(self, proposed_configuration, updated_replica):
@@ -107,7 +112,11 @@ class IndexSelectionEnv(gym.Env):
         replica_costs = [x for x in self.replica_cache]
         
         candidate = construct_indexes_from_candidate(proposed_configuration, self.cols_to_table)
+        self.profiler.time_out()
+        self.profiler.time_in('database')
         total_cost = benchmark_fn(self.queries, candidate, updated_replica)
+        self.profiler.time_out()
+        self.profiler.time_in('step')
 
         replica_costs[updated_replica] = total_cost
         total_cost = sum(replica_costs)
@@ -151,7 +160,8 @@ class IndexSelectionEnv(gym.Env):
                     
                     for query in queries:
                         cur.execute('EXPLAIN ANALYZE %s;' % query)
-                        if after_timing := re.search(REGEX, cur.fetchall()[-1], re.IGNORECASE):
+                        if after_timing := re.search(REGEX, cur.fetchall()[-1][0], re.IGNORECASE):
+                            print('benched', after_timing)
                             cost += float(after_timing.group(1))
                     
                     while indexes_required > 0:

@@ -2,13 +2,14 @@ import pickle
 import psycopg
 import re
 from util import powerset, extract_columns_from_query, construct_indexes_from_candidate
+from profiling import Profiler
 
 QUERY_TEMPLATE_PATH     = './QueryBot5000/templates.txt'
 CLUSTER_ASSIGNMENT_PATH = './QueryBot5000/online-clustering-results/None-0.8-assignments.pickle'
 COVERAGE_PATH           = './QueryBot5000/cluster-coverage/coverage.pickle'
 
 class Preprocessor:
-    def __init__(self):
+    def __init__(self, profiler: Profiler):
         '''
         Instantiate the preprocessing module.
 
@@ -16,6 +17,7 @@ class Preprocessor:
         '''
         self.columns = []
         self.workload = []
+        self.profiler = profiler
         # self.connection = connection
     
     def _load_clusters(self):
@@ -26,11 +28,17 @@ class Preprocessor:
             pass
 
     def build_workload_matrix(self, space_budget):
+        self.profiler.time_in('filesystem')
         self.templates = self._read_templates()
+        self.profiler.time_out()
+        self.profiler.time_in('database')
         self._read_tables(self.templates)
         self._read_columns()
+        self.profiler.time_out()
         self.get_indexable_columns(self.templates)
+        self.profiler.time_in('database')
         self.get_candidate_indexes(space_budget)
+        self.profiler.time_out()
 
         print(self.candidates)
     

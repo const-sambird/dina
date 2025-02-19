@@ -16,6 +16,7 @@ from environment import IndexSelectionEnv
 from ReplayMemory import ReplayMemory, Transition
 from DQN import DQN
 from preprocessor import Preprocessor
+from profiling import Profiler
 
 device = torch.device(
     "cuda" if torch.cuda.is_available() else
@@ -44,14 +45,15 @@ SPACE_BUDGET = 2000000
 '''
 ENVIRONMENT
 '''
-p = Preprocessor()
+profiler = Profiler()
+p = Preprocessor(profiler)
 p.build_workload_matrix(SPACE_BUDGET)
 replicas = ['1']
 gym.register(
     id='gymnasium_env/IndexSelectionEnv',
     entry_point=IndexSelectionEnv
 )
-env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, replicas=replicas, candidates=p.candidates, cols_to_table=p.cols_to_table, candidate_sizes=p.candidate_sizes, templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA, mode = 'cost')
+env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, replicas=replicas, candidates=p.candidates, cols_to_table=p.cols_to_table, candidate_sizes=p.candidate_sizes, templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA, mode = 'exe')
 
 # Get number of actions from gym action space
 n_actions = env.action_space.n
@@ -213,3 +215,5 @@ for idx, replica in enumerate(config[0].tolist()[0]):
     for can_idx, include in enumerate(replica):
         if include == 1:
             print('-', p.candidates[can_idx], '(size: %d)' % p.candidate_sizes[p.candidates[can_idx]])
+print('PROFILING RESULTS')
+print(profiler.times())
