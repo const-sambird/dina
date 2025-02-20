@@ -1,5 +1,6 @@
 import math
 import random
+import time
 from collections import namedtuple, deque
 from itertools import count
 
@@ -155,10 +156,8 @@ def optimize_model():
     optimizer.step()
 
 def learn():
-    if torch.cuda.is_available() or torch.backends.mps.is_available():
-        num_episodes = 600
-    else:
-        num_episodes = 50
+    # this constant is from the original DINA code. i imagine it's pretty arbitrary
+    num_episodes = 100
 
     for i_episode in range(num_episodes):
         print('*** this is episode', i_episode)
@@ -210,7 +209,10 @@ def learn():
 
     return state, info
 
+tic = time.time()
 config = learn()
+toc = time.time()
+
 print('LEARNED CONFIGURATION')
 for idx, replica in enumerate(config[0].tolist()[0]):
     print('--- replica', idx)
@@ -222,3 +224,4 @@ for idx, replica in enumerate(config[0].tolist()[0]):
             print('-', p.candidates[can_idx], '(size: %d)' % p.candidate_sizes[p.candidates[can_idx]])
 print('PROFILING RESULTS')
 print(profiler.times())
+print('TOTAL EXECUTION TIME: %.2fs' % toc - tic)
