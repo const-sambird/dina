@@ -2,6 +2,7 @@ import numpy as np
 import gymnasium as gym
 import psycopg
 import re
+import time
 from random import choice
 
 from util import extract_columns_from_query, insert_dummy_values, construct_indexes_from_candidate
@@ -77,15 +78,27 @@ class IndexSelectionEnv(gym.Env):
         return observation, info
     
     def step(self, action):
+        self.profiler.count_up()
         self.profiler.time_in('step')
         candidate_to_add = action % self.num_candidates
         replica_to_update = action // self.num_candidates
+
+        for replica in range(self.num_replicas):
+            smallest_available = min([self.candidate_sizes[self.candidates[i]] for i, e in enumerate(self._state[replica]) if e == 0])
+            if self.space_budget - self.spaces_used[replica] > smallest_available:
+                break
+        else:
+            # all of our space budgets are 'full'
+            self.profiler.time_out()
+            return self._step_early_termination()
 
         if self._state[replica_to_update][candidate_to_add] == 0:
             required_space = self.candidate_sizes[self.candidates[candidate_to_add]]
             available_space = self.space_budget - self.spaces_used[replica_to_update]
             if required_space > available_space:
-                self._drop_candidates_to_free(required_space - available_space, replica_to_update, candidate_to_add)
+                self.profiler.time_out()
+                return self._step_early_continuation()
+                #self._drop_candidates_to_free(required_space - available_space, replica_to_update, candidate_to_add)
 
             self._state[replica_to_update][candidate_to_add] = 1
             self.spaces_used[replica_to_update] += required_space
@@ -100,6 +113,35 @@ class IndexSelectionEnv(gym.Env):
         self.profiler.time_out()
 
         return observation, reward, terminated, truncated, info
+    
+    def _step_early_termination(self, reward = 0.0):
+        '''
+        Called when we determine that there is no possible action that we
+        can now take that would not exceed the space budget (ie, all replicas
+        are full), and we should now terminate this training epoch.
+
+        Equivalent to a `break` statement in the training loop.
+        '''
+        observation = self._get_obs()
+        info = self._get_info()
+        terminated = True
+        truncated = False
+        return observation, reward, terminated, truncated, info
+    
+    def _step_early_continuation(self, reward = 0.0):
+        '''
+        Called when an action is passed to the environment that would
+        cause us to exceed our space budget if executed, but there do
+        still exist some actions that are valid (so we should not terminate
+        this training episode).
+
+        Equivalent to a `continue` statement in the training loop.
+        '''
+        observation = self._get_obs()
+        info = self._get_info()
+        terminated = False
+        truncated = False
+        return observation, reward, terminated, truncated, info
 
     def reward(self, proposed_configuration, updated_replica):
         benchmark_fn = None
@@ -113,7 +155,7 @@ class IndexSelectionEnv(gym.Env):
         
         candidate = construct_indexes_from_candidate(proposed_configuration, self.cols_to_table)
         self.profiler.time_out()
-        self.profiler.time_in('database')
+        self.profiler.time_in('database.benchmark')
         total_cost = benchmark_fn(self.queries, candidate, updated_replica)
         self.profiler.time_out()
         self.profiler.time_in('step')
@@ -150,25 +192,25 @@ class IndexSelectionEnv(gym.Env):
         try:
             with psycopg.connect('dbname=tpchdb user=sam') as conn:
                 with conn.cursor() as cur:
-                    REGEX = '(([0-9]|\\.)+)'
                     indexes_required = 0
-                    cost = 0
                     
                     for table, columns in candidate.items():
                         indexes_required += 1
                         cur.execute('CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns)))
+                        print('CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns)))
                     
+                    tic = time.time()
+
                     for query in queries:
-                        cur.execute('EXPLAIN ANALYZE %s;' % query)
-                        if after_timing := re.search(REGEX, cur.fetchall()[-1][0], re.IGNORECASE):
-                            print('benched', after_timing)
-                            cost += float(after_timing.group(1))
+                        cur.execute('%s;' % query)
+
+                    toc = time.time()
                     
                     while indexes_required > 0:
                         cur.execute('DROP INDEX candidate_index_%d;' % indexes_required)
                         indexes_required -= 1
 
-                    return cost
+                    return toc - tic
         except Exception as err:
             print('got an exception in the database connection')
             print(err)

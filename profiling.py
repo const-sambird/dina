@@ -5,6 +5,7 @@ class Profiler:
         self._time_in = None
         self._current_category = 'uncategorised'
         self._times = {}
+        self.count = 0
     
     def time_in(self, category = 'uncategorised'):
         assert self._time_in is None, 'attempted to start timing when already timing'
@@ -29,3 +30,6 @@ class Profiler:
     
     def times(self):
         return self._times
+    
+    def count_up(self):
+        self.count += 1

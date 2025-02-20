@@ -53,7 +53,7 @@ gym.register(
     id='gymnasium_env/IndexSelectionEnv',
     entry_point=IndexSelectionEnv
 )
-env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, replicas=replicas, candidates=p.candidates, cols_to_table=p.cols_to_table, candidate_sizes=p.candidate_sizes, templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA, mode = 'exe')
+env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, profiler=profiler, replicas=replicas, candidates=p.candidates, cols_to_table=p.cols_to_table, candidate_sizes=p.candidate_sizes, templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA, mode = 'cost')
 
 # Get number of actions from gym action space
 n_actions = env.action_space.n
@@ -162,6 +162,7 @@ def learn():
 
     for i_episode in range(num_episodes):
         print('*** this is episode', i_episode)
+        return_state = None
         # Initialize the environment and get its state
         state, info = env.reset()
         state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
@@ -173,6 +174,7 @@ def learn():
 
             if terminated:
                 next_state = None
+                return_state = state
             else:
                 next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
 
@@ -202,6 +204,9 @@ def learn():
     plot_durations(show_result=True)
     plt.ioff()
     plt.show()
+
+    if return_state is not None:
+        state = return_state
 
     return state, info
 
