@@ -38,6 +38,8 @@ class IndexSelectionEnv(gym.Env):
         self.templates = templates
         self.queries = queries
 
+        self._action_mask = np.ones(shape=(self.num_replicas * self.num_candidates,), dtype=np.int8)
+
         self._state = np.zeros((self.num_replicas, self.num_candidates))
         
         '''
@@ -63,7 +65,8 @@ class IndexSelectionEnv(gym.Env):
             'beta': self.beta,
             'cache': self.replica_cache,
             'budget': self.space_budget,
-            'spaces_used': self.spaces_used
+            'spaces_used': self.spaces_used,
+            'mask': self._action_mask
         }
     
     def reset(self, seed=None, options=None):
@@ -72,6 +75,7 @@ class IndexSelectionEnv(gym.Env):
         self._state = np.zeros((self.num_replicas, self.num_candidates))
         self.spaces_used = [0 for i in range(self.num_replicas)]
         self.replica_cache = [0 for i in range(self.num_replicas)]
+        self._action_mask = np.ones((self.num_replicas * self.num_candidates,), dtype=np.int8)
         observation = self._get_obs()
         info = self._get_info()
 
@@ -91,6 +95,8 @@ class IndexSelectionEnv(gym.Env):
             # all of our space budgets are 'full'
             self.profiler.time_out()
             return self._step_early_termination()
+        
+        self._update_mask()
 
         if self._state[replica_to_update][candidate_to_add] == 0:
             required_space = self.candidate_sizes[self.candidates[candidate_to_add]]
@@ -101,6 +107,7 @@ class IndexSelectionEnv(gym.Env):
                 #self._drop_candidates_to_free(required_space - available_space, replica_to_update, candidate_to_add)
 
             self._state[replica_to_update][candidate_to_add] = 1
+            self._action_mask[(replica_to_update * self.num_candidates) + candidate_to_add] = 0
             self.spaces_used[replica_to_update] += required_space
 
         reward = self.reward(self.candidates[candidate_to_add], replica_to_update)
@@ -197,7 +204,6 @@ class IndexSelectionEnv(gym.Env):
                     for table, columns in candidate.items():
                         indexes_required += 1
                         cur.execute('CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns)))
-                        print('CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns)))
                     
                     tic = time.time()
 
@@ -284,3 +290,28 @@ class IndexSelectionEnv(gym.Env):
             self._state[replica][idx] = 0
         
         self.spaces_used[replica] -= space_freed
+
+    def _update_mask(self, refresh = False):
+        '''
+        Update the action state mask.
+        '''
+        self.profiler.time_in('masking')
+        # initially: exclude all redundant actions (we can't add the same candidate twice)
+        if refresh:
+            self._action_mask = (1 - self._state).flatten().astype(np.int8)
+
+        for replica in range(self.num_replicas):
+            smallest_available = min([self.candidate_sizes[self.candidates[i]] for i, e in enumerate(self._state[replica]) if e == 0])
+            space_free = self.space_budget - self.spaces_used[replica]
+            lower_bound = replica * self.num_candidates
+            upper_bound = (replica + 1) * self.num_candidates
+            if space_free < smallest_available:
+                # this replica's space budget is full    
+                #print(f'self._action_mask[{lower_bound}:{upper_bound}] = 0')
+                self._action_mask[lower_bound:upper_bound] = 0
+                continue
+            for idx, candidate in enumerate(self.candidates):
+                size = self.candidate_sizes[candidate]
+                if space_free < size:
+                    self._action_mask[lower_bound + idx] = 0
+        self.profiler.time_out()

@@ -49,7 +49,7 @@ ENVIRONMENT
 profiler = Profiler()
 p = Preprocessor(profiler)
 p.build_workload_matrix(SPACE_BUDGET)
-replicas = ['1']
+replicas = ['1', '2']
 gym.register(
     id='gymnasium_env/IndexSelectionEnv',
     entry_point=IndexSelectionEnv
@@ -73,7 +73,8 @@ memory = ReplayMemory(REPLAY_BUFFER_SIZE)
 steps_done = 0
 
 
-def select_action(state):
+def select_action(state, mask):
+    #print('mask:', mask)
     global steps_done
     sample = random.random()
     eps_threshold = EPS_END + (EPS_START - EPS_END) * \
@@ -86,7 +87,7 @@ def select_action(state):
             # found, so we pick action with the larger expected reward.
             return policy_net(state).max(1).indices.view(1, 1)
     else:
-        return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
+        return torch.tensor([[env.action_space.sample(mask=mask)]], device=device, dtype=torch.long)
 
 episode_durations = []
 
@@ -166,8 +167,8 @@ def learn():
         state, info = env.reset()
         state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
         for t in count():
-            action = select_action(state)
-            observation, reward, terminated, truncated, _ = env.step(action.item())
+            action = select_action(state, info['mask'])
+            observation, reward, terminated, truncated, info = env.step(action.item())
             reward = torch.tensor([reward], device=device)
             done = terminated or truncated
 
@@ -224,4 +225,4 @@ for idx, replica in enumerate(config[0].tolist()[0]):
             print('-', p.candidates[can_idx], '(size: %d)' % p.candidate_sizes[p.candidates[can_idx]])
 print('PROFILING RESULTS')
 print(profiler.times())
-print('TOTAL EXECUTION TIME: %.2fs' % toc - tic)
+print('TOTAL EXECUTION TIME: %.2fs' % (toc - tic))
