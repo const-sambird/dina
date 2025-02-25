@@ -51,7 +51,7 @@ from preprocessor import Preprocessor
 if __name__ == '__main__':
     prof = Profiler()
     p = Preprocessor(prof)
-    p.build_workload_matrix(2000000)
+    p.preprocess(2000000)
     config = np.asarray([[1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]])
     r = Router(p.templates, config, 1, prof)
     r.evaluate()

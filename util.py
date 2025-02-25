@@ -1,4 +1,5 @@
 from itertools import chain, combinations
+from random import randrange
 import re
 
 def powerset(iterable):
@@ -60,3 +61,9 @@ def insert_dummy_values(template):
     template = re.sub(INT_VALUES, '-1', template)
 
     return template
+
+def drop_one(from_tuple):
+    els = list(from_tuple)
+    to_drop = randrange(0, len(els))
+    del els[to_drop]
+    return tuple(els)

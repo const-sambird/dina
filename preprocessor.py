@@ -1,7 +1,7 @@
 import pickle
 import psycopg
 import re
-from util import powerset, extract_columns_from_query, construct_indexes_from_candidate
+from util import extract_columns_from_query, construct_indexes_from_candidate, drop_one
 from profiling import Profiler
 
 QUERY_TEMPLATE_PATH     = './QueryBot5000/templates.txt'
@@ -27,12 +27,12 @@ class Preprocessor:
         except:
             pass
 
-    def build_workload_matrix(self, space_budget):
+    def preprocess(self, space_budget):
         self.profiler.time_in('filesystem')
         self.templates = self._read_templates()
         self.profiler.time_out()
         self.profiler.time_in('database.preprocess')
-        self._read_tables(self.templates)
+        self._read_tables()
         self._read_columns()
         self.profiler.time_out()
         self.get_indexable_columns(self.templates)
@@ -46,7 +46,7 @@ class Preprocessor:
         with open(path, 'r') as infile:
             return infile.readlines()
 
-    def _read_tables(self, templates):
+    def _read_tables(self):
         with psycopg.connect('dbname=tpchdb user=sam') as conn:
             with conn.cursor() as cur:
                 cur.execute('SELECT table_name FROM information_schema.tables WHERE table_schema = \'public\';')
@@ -73,12 +73,19 @@ class Preprocessor:
             print(err)
     
     def get_indexable_columns(self, templates):
-        self.indexable = set()
+        self.indexable = {}
 
-        for template in templates:
+        for idx, template in enumerate(templates):
             matches = extract_columns_from_query(template, self.cols_to_table)
-            for column in matches.values():
-                self.indexable = self.indexable.union(column)
+            print(f'< template {idx} : {matches}')
+            for table, columns in matches.items():
+                if table not in self.indexable:
+                    self.indexable[table] = set()
+                self.indexable[table].add(tuple(sorted(columns)))
+        
+        # flatten dict of sets of tuples into a list of tuples
+        self.indexable = [x for v in self.indexable.values() for x in v]
+        print(self.indexable)
     
     def get_candidate_indexes(self, space_budget):
         self.candidates = []
@@ -88,8 +95,8 @@ class Preprocessor:
             with psycopg.connect('dbname=tpchdb user=sam') as conn:
                 with conn.cursor() as cur:
                     for candidate in self.indexable:
-                        candidate = (candidate,) # FIXME
                         if len(candidate) == 0: continue
+                        if candidate in self.candidate_sizes: continue
                         print('evaluating candidate:', candidate)
                         computed_size = 0
                         candidate_representation = construct_indexes_from_candidate(candidate, self.cols_to_table)
@@ -103,6 +110,12 @@ class Preprocessor:
                         if space_budget > computed_size:
                             self.candidates.append(candidate)
                             self.candidate_sizes[candidate] = computed_size
+                        else:
+                            modified = drop_one(candidate)
+                            print('----- too large! we\'ll try again with ', modified)
+                            self.indexable.append(modified)
         except Exception as err:
             print('got an exception in the database connection')
             print(err)
+        
+        self.candidates = list(set(self.candidates))

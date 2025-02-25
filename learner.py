@@ -48,7 +48,7 @@ ENVIRONMENT
 '''
 profiler = Profiler()
 p = Preprocessor(profiler)
-p.build_workload_matrix(SPACE_BUDGET)
+p.preprocess(SPACE_BUDGET)
 replicas = ['1', '2']
 gym.register(
     id='gymnasium_env/IndexSelectionEnv',
