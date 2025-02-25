@@ -18,12 +18,30 @@ from ReplayMemory import ReplayMemory, Transition
 from DQN import DQN
 from preprocessor import Preprocessor
 from profiling import Profiler
+from database import Replica
 
 device = torch.device(
     "cuda" if torch.cuda.is_available() else
     "mps" if torch.backends.mps.is_available() else
     "cpu"
 )
+
+def get_replicas(path = './replicas.csv'):
+    replicas = []
+    with open(path, 'r') as infile:
+        lines = infile.readlines()
+        for config in lines:
+            fields = config.split(',')
+            replicas.append(
+                Replica(
+                    id=fields[0],
+                    hostname=fields[1],
+                    port=fields[2],
+                    dbname=fields[3],
+                    user=fields[4]
+                )
+            )
+    return replicas
 
 '''
 HYPERPARAMETERS
@@ -46,10 +64,11 @@ SPACE_BUDGET = 2000000
 '''
 ENVIRONMENT
 '''
+tic = time.time()
 profiler = Profiler()
-p = Preprocessor(profiler)
+replicas = get_replicas()
+p = Preprocessor(profiler, replicas[0])
 p.preprocess(SPACE_BUDGET)
-replicas = ['1', '2']
 gym.register(
     id='gymnasium_env/IndexSelectionEnv',
     entry_point=IndexSelectionEnv
@@ -205,7 +224,6 @@ def learn():
 
     return state, info
 
-tic = time.time()
 config = learn()
 toc = time.time()
 

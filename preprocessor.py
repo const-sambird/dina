@@ -3,22 +3,24 @@ import psycopg
 import re
 from util import extract_columns_from_query, construct_indexes_from_candidate, drop_one
 from profiling import Profiler
+from database import Replica
 
 QUERY_TEMPLATE_PATH     = './QueryBot5000/templates.txt'
 CLUSTER_ASSIGNMENT_PATH = './QueryBot5000/online-clustering-results/None-0.8-assignments.pickle'
 COVERAGE_PATH           = './QueryBot5000/cluster-coverage/coverage.pickle'
 
 class Preprocessor:
-    def __init__(self, profiler: Profiler):
+    def __init__(self, profiler: Profiler, database: Replica):
         '''
         Instantiate the preprocessing module.
 
-        connection is a 
+        `database` is the database replica we should use for querying table names,
+        column names, and index sizes.
         '''
         self.columns = []
         self.workload = []
         self.profiler = profiler
-        # self.connection = connection
+        self.database = database
     
     def _load_clusters(self):
         try:
@@ -47,7 +49,7 @@ class Preprocessor:
             return infile.readlines()
 
     def _read_tables(self):
-        with psycopg.connect('dbname=tpchdb user=sam') as conn:
+        with psycopg.connect(self.database.connection_string()) as conn:
             with conn.cursor() as cur:
                 cur.execute('SELECT table_name FROM information_schema.tables WHERE table_schema = \'public\';')
                 self.tables = [name[0] for name in cur.fetchall()]
@@ -61,7 +63,7 @@ class Preprocessor:
         QUERY_TEMPLATE = "SELECT * FROM %s LIMIT 0;"
 
         try:
-            with psycopg.connect('dbname=tpchdb user=sam') as conn:
+            with psycopg.connect(self.database.connection_string()) as conn:
                 with conn.cursor() as cur:
                     for table in self.tables:
                         cur.execute(QUERY_TEMPLATE % table)
@@ -77,7 +79,6 @@ class Preprocessor:
 
         for idx, template in enumerate(templates):
             matches = extract_columns_from_query(template, self.cols_to_table)
-            print(f'< template {idx} : {matches}')
             for table, columns in matches.items():
                 if table not in self.indexable:
                     self.indexable[table] = set()
@@ -91,12 +92,15 @@ class Preprocessor:
         self.candidates = []
         self.candidate_sizes = {}
 
+        tried = set()
+
         try:
-            with psycopg.connect('dbname=tpchdb user=sam') as conn:
+            with psycopg.connect(self.database.connection_string()) as conn:
                 with conn.cursor() as cur:
                     for candidate in self.indexable:
                         if len(candidate) == 0: continue
-                        if candidate in self.candidate_sizes: continue
+                        if candidate in tried: continue
+                        tried.add(candidate)
                         print('evaluating candidate:', candidate)
                         computed_size = 0
                         candidate_representation = construct_indexes_from_candidate(candidate, self.cols_to_table)

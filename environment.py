@@ -7,9 +7,10 @@ from random import choice
 
 from util import extract_columns_from_query, insert_dummy_values, construct_indexes_from_candidate
 from profiling import Profiler
+from database import Replica
 
 class IndexSelectionEnv(gym.Env):
-    def __init__(self, profiler: Profiler, replicas, candidates, candidate_sizes, cols_to_table, templates, queries, space_budget, alpha, beta, mode = 'cost'):
+    def __init__(self, profiler: Profiler, replicas: list[Replica], candidates, candidate_sizes, cols_to_table, templates, queries, space_budget, alpha, beta, mode = 'cost'):
         '''
         The mode is how DINA evaluates rewards.
         - `cost`: we use PostgreSQL's cost estimator to evaluate the performance of indexes
@@ -165,7 +166,7 @@ class IndexSelectionEnv(gym.Env):
         candidate = construct_indexes_from_candidate(proposed_configuration, self.cols_to_table)
         self.profiler.time_out()
         self.profiler.time_in('database.benchmark')
-        total_cost = benchmark_fn(self.queries, candidate, updated_replica)
+        total_cost = benchmark_fn(self.queries, candidate, self.replicas[updated_replica])
         self.profiler.time_out()
         self.profiler.time_in('step')
 
@@ -190,7 +191,7 @@ class IndexSelectionEnv(gym.Env):
             return 1000
         return 1 / skew
 
-    def _benchmark_index_exe(self, queries: list[str], candidate: dict[str, list[str]], replica: str) -> float | None:
+    def _benchmark_index_exe(self, queries: list[str], candidate: dict[str, list[str]], replica: Replica) -> float | None:
         '''
         Returns the *actual execution time* of the given queries,
         provided that the candidate index described in `cols_to_index`
@@ -199,7 +200,7 @@ class IndexSelectionEnv(gym.Env):
         Returns None if it is not possible to benchmark this candidate.
         '''
         try:
-            with psycopg.connect('dbname=tpchdb user=sam') as conn:
+            with psycopg.connect(replica.connection_string()) as conn:
                 with conn.cursor() as cur:
                     indexes_required = 0
                     
@@ -223,7 +224,7 @@ class IndexSelectionEnv(gym.Env):
             print('got an exception in the database connection')
             print(err)
 
-    def _benchmark_index_cost(self, queries: list[str], candidate: dict[str, list[str]], replica: str) -> float | None:
+    def _benchmark_index_cost(self, queries: list[str], candidate: dict[str, list[str]], replica: Replica) -> float | None:
         '''
         Returns the *estimated execution cost* of the given queries,
         as given by PostgreSQL's cost estimation module, provided
@@ -233,7 +234,7 @@ class IndexSelectionEnv(gym.Env):
         Returns None if it is not possible to benchmark this candidate.
         '''
         #try:
-        with psycopg.connect('dbname=tpchdb user=sam') as conn:
+        with psycopg.connect(replica.connection_string()) as conn:
             with conn.cursor() as cur:
                 REGEX = 'cost=([0-9]+\\.[0-9]+)'
                 
