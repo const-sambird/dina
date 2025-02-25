@@ -200,11 +200,6 @@ def learn():
                 plot_durations()
                 break
 
-    print('Complete')
-    plot_durations(show_result=True)
-    plt.ioff()
-    plt.show()
-
     if return_state is not None:
         state = return_state
 
@@ -213,6 +208,11 @@ def learn():
 tic = time.time()
 config = learn()
 toc = time.time()
+
+print('Complete')
+plot_durations(show_result=True)
+plt.ioff()
+plt.show()
 
 print('LEARNED CONFIGURATION')
 for idx, replica in enumerate(config[0].tolist()[0]):

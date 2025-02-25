@@ -96,7 +96,9 @@ class IndexSelectionEnv(gym.Env):
             self.profiler.time_out()
             return self._step_early_termination()
         
+        self.profiler.time_out()
         self._update_mask()
+        self.profiler.time_in('step')
 
         if self._state[replica_to_update][candidate_to_add] == 0:
             required_space = self.candidate_sizes[self.candidates[candidate_to_add]]
