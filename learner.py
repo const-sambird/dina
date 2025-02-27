@@ -16,6 +16,7 @@ import gymnasium as gym
 from environment import IndexSelectionEnv
 from ReplayMemory import ReplayMemory, Transition
 from DQN import DQN
+from qnn import QuantumDQN
 from preprocessor import Preprocessor
 from profiling import Profiler
 from database import Replica
@@ -81,8 +82,10 @@ n_actions = env.action_space.n
 state, info = env.reset()
 n_observations = np.size(state)
 
-policy_net = DQN(n_observations, n_actions, NN_HIDDEN_LAYERS).to(device)
-target_net = DQN(n_observations, n_actions, NN_HIDDEN_LAYERS).to(device)
+# policy_net = DQN(n_observations, n_actions, NN_HIDDEN_LAYERS).to(device)
+# target_net = DQN(n_observations, n_actions, NN_HIDDEN_LAYERS).to(device)
+policy_net = QuantumDQN(n_observations, n_actions).to(device)
+target_net = QuantumDQN(n_observations, n_actions).to(device)
 target_net.load_state_dict(policy_net.state_dict())
 
 optimizer = optim.AdamW(policy_net.parameters(), lr=LEARNING_RATE, amsgrad=True)
