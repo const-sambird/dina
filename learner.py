@@ -20,6 +20,7 @@ from qnn import QuantumDQN
 from preprocessor import Preprocessor
 from profiling import Profiler
 from database import Replica
+from router import Router
 
 device = torch.device(
     "cuda" if torch.cuda.is_available() else
@@ -235,8 +236,28 @@ plot_durations(show_result=True)
 plt.ioff()
 plt.show()
 
+print('Generating routeing table...')
+# router expects the format [ { table: [cols,] } ]
+parsed_config = []
+final_state = config[0].tolist()[0]
+
+for idx in range(len(replicas)):
+    indexes = []
+    for can_idx, include in enumerate(final_state[idx]):
+        if include == 1:
+            indexes.append(can_idx)
+    indexes = [p.candidates[can_idx] for can_idx in indexes]
+    # add the table name too
+    indexes = [[p.cols_to_table[x[0]], x] for x in indexes]
+    print(f'replica {idx} has the following cols: {indexes}')
+
+    parsed_config.append(indexes)
+
+router = Router(p.templates, parsed_config, replicas, profiler)
+router.evaluate()
+
 print('LEARNED CONFIGURATION')
-for idx, replica in enumerate(config[0].tolist()[0]):
+for idx, replica in enumerate(final_state):
     print('--- replica', idx)
     print('space:', config[1]['spaces_used'][idx], '/', SPACE_BUDGET)
     print('indexes:')
@@ -244,6 +265,8 @@ for idx, replica in enumerate(config[0].tolist()[0]):
     for can_idx, include in enumerate(replica):
         if include == 1:
             print('-', p.candidates[can_idx], '(size: %d)' % p.candidate_sizes[p.candidates[can_idx]])
+print('ROUTEING TABLE')
+print(router.routes)
 print('PROFILING RESULTS')
 print(profiler.times())
 print('TOTAL EXECUTION TIME: %.2fs' % (toc - tic))
