@@ -88,11 +88,16 @@ class IndexSelectionEnv(gym.Env):
         candidate_to_add = action % self.num_candidates
         replica_to_update = action // self.num_candidates
 
+        should_return = True
         for replica in range(self.num_replicas):
-            smallest_available = min([self.candidate_sizes[self.candidates[i]] for i, e in enumerate(self._state[replica]) if e == 0])
+            spaces = [self.candidate_sizes[self.candidates[i]] for i, e in enumerate(self._state[replica]) if e == 0]
+            if len(spaces) == 0:
+                continue
+            smallest_available = min(spaces)
             if self.space_budget - self.spaces_used[replica] > smallest_available:
+                should_return = False
                 break
-        else:
+        if should_return:
             # all of our space budgets are 'full'
             self.profiler.time_out()
             return self._step_early_termination()
@@ -223,6 +228,7 @@ class IndexSelectionEnv(gym.Env):
         except Exception as err:
             print('got an exception in the database connection')
             print(err)
+            return 0
 
     def _benchmark_index_cost(self, queries: list[str], candidate: dict[str, list[str]], replica: Replica) -> float | None:
         '''
@@ -233,31 +239,32 @@ class IndexSelectionEnv(gym.Env):
 
         Returns None if it is not possible to benchmark this candidate.
         '''
-        #try:
-        with psycopg.connect(replica.connection_string()) as conn:
-            with conn.cursor() as cur:
-                REGEX = 'cost=([0-9]+\\.[0-9]+)'
-                
-                indexes_required = 0
-                cost = 0
-                
-                for table, columns in candidate.items():
-                    indexes_required += 1
-                    cur.execute('CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns)))
-                
-                for query in queries:
-                    cur.execute('EXPLAIN %s;' % query)
-                    if after_timing := re.search(REGEX, cur.fetchone()[0], re.IGNORECASE):
-                        cost += float(after_timing.group(1))
-                
-                while indexes_required > 0:
-                    cur.execute('DROP INDEX candidate_index_%d;' % indexes_required)
-                    indexes_required -= 1
-                
-                return cost
-        #except Exception as err:
-        #    print('got an exception in the database connection')
-        #    print(err)
+        try:
+            with psycopg.connect(replica.connection_string()) as conn:
+                with conn.cursor() as cur:
+                    REGEX = 'cost=([0-9]+\\.[0-9]+)'
+                    
+                    indexes_required = 0
+                    cost = 0
+                    
+                    for table, columns in candidate.items():
+                        indexes_required += 1
+                        cur.execute('CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns)))
+                    
+                    for query in queries:
+                        cur.execute('EXPLAIN %s;' % query)
+                        if after_timing := re.search(REGEX, cur.fetchone()[0], re.IGNORECASE):
+                            cost += float(after_timing.group(1))
+                    
+                    while indexes_required > 0:
+                        cur.execute('DROP INDEX candidate_index_%d;' % indexes_required)
+                        indexes_required -= 1
+                    
+                    return cost
+        except Exception as err:
+            print('got an exception in the database connection')
+            print(err)
+            return 0
     
     def _compute_baseline(self):
         benchmark_fn = None

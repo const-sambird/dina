@@ -3,3 +3,7 @@ torch
 numpy
 matplotlib
 gymnasium
+qiskit
+qiskit[visualization]
+qiskit-machine-learning
+qiskit-machine-learning[torch]

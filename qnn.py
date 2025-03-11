@@ -48,8 +48,41 @@ def build_angle_encoded_circuit(n_inputs: int, param_layers: int) -> tuple[Quant
     # entanglement step
     for i in range(n_inputs):
         qc.cz(i, (i + 1) % n_inputs)
+
+    qc.draw(output='mpl', style='clifford')
+    plt.show()
     
     return qc, input_params, trainable_params
+
+def construct_ansatz(n_inputs: int, gates: list[str], n_times: int) -> tuple[QuantumCircuit, list[Parameter]]:
+    trainable_params = []
+    ansatz = QuantumCircuit(n_inputs)
+    qc_gate = gate_selector(ansatz)
+
+    for i_layer in range(n_times):
+        for i_gate, gate in enumerate(gates):
+            assert gate[0] in ['r', 'c'], f'unknown gate type {gate}, expected one of the form [r,c][x,y,z]'
+            assert gate[1] in ['x', 'y', 'z'], f'unknown gate type {gate}, expected one of the form [r,c][x,y,z]'
+            assert len(gate) == 2, f'unknown gate type {gate}, expected one of the form [r,c][x,y,z]'
+            for qubit in range(n_inputs):
+                if gate[0] == 'c':
+                    qc_gate[gate](qubit, (qubit + 1) % n_inputs)
+                elif gate[0] == 'r':
+                    weight = Parameter(f'weight_{i_layer}_{gate}_{qubit}')
+                    trainable_params.append(weight)
+                    qc_gate[gate](weight, qubit)
+    
+    return ansatz
+
+def gate_selector(qc: QuantumCircuit) -> dict[str, any]:
+    return {
+        'rx': qc.rx,
+        'ry': qc.ry,
+        'rz': qc.rz,
+        'cx': qc.cx,
+        'cy': qc.cy,
+        'cz': qc.cz
+    }
 
 def build_qnn_model(n_inputs: int, param_layers: int) -> EstimatorQNN:
     circuit, inputs, weights = build_angle_encoded_circuit(n_inputs, param_layers)
