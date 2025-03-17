@@ -43,7 +43,7 @@ class IndexSelectionEnv(gym.Env):
         self.templates = templates
         self.queries = queries
 
-        self._action_mask = np.ones(shape=(self.num_replicas * self.num_candidates,), dtype=np.int8)
+        self._action_mask = np.ones(shape=(self.num_replicas * self.num_candidates * 2,), dtype=np.int8)
 
         self._state = np.zeros((self.num_replicas, self.num_candidates))
         
@@ -87,7 +87,7 @@ class IndexSelectionEnv(gym.Env):
         self._state = np.zeros((self.num_replicas, self.num_candidates))
         self.spaces_used = [0 for i in range(self.num_replicas)]
         self.replica_cache = [0 for i in range(self.num_replicas)]
-        self._action_mask = np.ones((self.num_replicas * self.num_candidates,), dtype=np.int8)
+        self._action_mask = np.ones((self.num_replicas * self.num_candidates * 2,), dtype=np.int8)
         observation = self._get_obs()
         info = self._get_info()
 
@@ -121,8 +121,9 @@ class IndexSelectionEnv(gym.Env):
         print('action:', action)
         self.profiler.count_up()
         #self.profiler.time_in('step')
-        creating = action > self.action_drop_threshold
-        action = action - (self.action_space.n // 2) # now represents an index into the observation space
+        creating = action >= self.action_drop_threshold
+        if creating:
+            action = action - (self.action_space.n // 2) # now represents an index into the observation space
         candidate_to_toggle = action % self.num_candidates
         replica_to_update = action // self.num_candidates
 
@@ -425,6 +426,9 @@ $do$;
         '''
         Update the action state mask. Marks this replica as 'complete'.
         '''
-        lower_bound = replica * self.num_candidates
-        upper_bound = (replica + 1) * self.num_candidates
-        self._action_mask[lower_bound:upper_bound] = 0
+        lower_bound_create = replica * self.num_candidates
+        upper_bound_create = (replica + 1) * self.num_candidates
+        lower_bound_drop = (self.num_replicas * self.num_candidates) + lower_bound_create
+        upper_bound_drop = (self.num_replicas * self.num_candidates) + upper_bound_create
+        self._action_mask[lower_bound_create:upper_bound_create] = 0
+        self._action_mask[lower_bound_drop:upper_bound_drop] = 0

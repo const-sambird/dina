@@ -117,7 +117,7 @@ if __name__ == '__main__':
                 # found, so we pick action with the larger expected reward.
                 return policy_net(state).max(1).indices.view(1, 1)
         else:
-            return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
+            return torch.tensor([[env.action_space.sample(mask=mask)]], device=device, dtype=torch.long)
 
     episode_durations = []
 
@@ -188,7 +188,7 @@ if __name__ == '__main__':
 
     def learn():
         # this constant is from the original DINA code. i imagine it's pretty arbitrary
-        num_episodes = 10
+        num_episodes = 100
 
         for i_episode in range(num_episodes):
             print('*** this is episode', i_episode)
