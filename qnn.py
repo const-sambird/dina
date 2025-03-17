@@ -1,8 +1,8 @@
 from qiskit_machine_learning.utils import algorithm_globals
 from qiskit.circuit import Parameter
 from qiskit import QuantumCircuit
-from qiskit_machine_learning.neural_networks import EstimatorQNN
-from qiskit.primitives import StatevectorEstimator as Estimator
+from qiskit_machine_learning.neural_networks import SamplerQNN
+from qiskit.primitives import StatevectorSampler as Sampler
 from qiskit_machine_learning.connectors import TorchConnector
 
 from torch import nn
@@ -48,9 +48,6 @@ def build_angle_encoded_circuit(n_inputs: int, param_layers: int) -> tuple[Quant
     # entanglement step
     for i in range(n_inputs):
         qc.cz(i, (i + 1) % n_inputs)
-
-    qc.draw(output='mpl', style='clifford')
-    plt.show()
     
     return qc, input_params, trainable_params
 
@@ -84,42 +81,49 @@ def gate_selector(qc: QuantumCircuit) -> dict[str, any]:
         'cz': qc.cz
     }
 
-def build_qnn_model(n_inputs: int, param_layers: int) -> EstimatorQNN:
+def interpreter(outputs):
+    def parity(x):
+        return f"{bin(x)}".count("1") % outputs
+    return parity
+
+def build_qnn_model(n_inputs: int, param_layers: int, n_outputs: int) -> SamplerQNN:
     circuit, inputs, weights = build_angle_encoded_circuit(n_inputs, param_layers)
-    estimator = Estimator()
-    qnn = EstimatorQNN(
+    sampler = Sampler()
+    qnn = SamplerQNN(
         circuit=circuit,
         input_params=inputs,
         weight_params=weights,
-        estimator=estimator,
-        input_gradients=True
+        sampler=sampler,
+        input_gradients=True,
+        output_shape=n_outputs,
+        interpret=interpreter(n_outputs)
     )
 
     return qnn
 
 class QNN(nn.Module):
-    def __init__(self, n_inputs, param_layers):
+    def __init__(self, n_inputs, param_layers, n_outputs):
         super(QNN, self).__init__()
-        self.qnn = TorchConnector(build_qnn_model(n_inputs, param_layers))
+        self.qnn = TorchConnector(build_qnn_model(n_inputs, param_layers, n_outputs))
     
     def forward(self, x):
         return self.qnn(x)
     
 class AngleEncodedQNN(nn.Module):
-    def __init__(self, n_inputs, param_layers):
+    def __init__(self, n_inputs, param_layers, n_outputs):
         super(AngleEncodedQNN, self).__init__()
         self.encoder = AngleEncoder()
-        self.qnn = QNN(n_inputs, param_layers)
+        self.qnn = QNN(n_inputs, param_layers, n_outputs)
 
     def forward(self, x):
         x = self.encoder(x)
         return self.qnn(x)
     
 class AmplitudeEncodedQNN(nn.Module):
-    def __init__(self, n_inputs, param_layers):
+    def __init__(self, n_inputs, param_layers, n_outputs):
         super(AmplitudeEncodedQNN, self).__init__()
         self.encoder = AmplitudeEncoder()
-        self.qnn = QNN(n_inputs, param_layers)
+        self.qnn = QNN(n_inputs, param_layers, n_outputs)
 
     def forward(self, x):
         x = self.encoder(x)
@@ -130,19 +134,19 @@ class QuantumDQN(nn.Module):
         assert encoding == 'angle' or encoding == 'amplitude', 'must specify one of amplitude or angle encoding!'
         super(QuantumDQN, self).__init__()
         if encoding == 'angle':
-            self.qnn = AngleEncodedQNN(n_inputs, param_layers)
+            self.qnn = AngleEncodedQNN(n_inputs, param_layers, n_actions)
         else:
-            self.qnn = AmplitudeEncodedQNN(n_inputs, param_layers)
+            self.qnn = AmplitudeEncodedQNN(n_inputs, param_layers, n_actions)
         self.state_encoder = StateEncoder(n_inputs)
         self.output_layer = nn.Linear(n_inputs, n_actions)
     
     def forward(self, x):
-        print('--- input tensor')
-        print(x)
+        #print('--- input tensor')
+        #print(x)
         x = self.state_encoder(x)
-        print('--- encoded tensor')
-        print(x)
+        #print('--- encoded tensor')
+        #print(x)
         x = self.qnn(x)
-        print('--- qnn result')
-        print(x)
+        #print('--- qnn result')
+        #print(x)
         return self.output_layer(x)

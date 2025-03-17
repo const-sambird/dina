@@ -9,8 +9,12 @@ from util import extract_columns_from_query, insert_dummy_values, construct_inde
 from profiling import Profiler
 from database import Replica
 
+# a postgres constant. if the space used is within this amount of the 
+# space budget, we can never add more indexes
+SMALLEST_POSSIBLE_INDEX_SIZE = 16384
+
 class IndexSelectionEnv(gym.Env):
-    def __init__(self, profiler: Profiler, replicas: list[Replica], candidates, candidate_sizes, cols_to_table, templates, queries, space_budget, alpha, beta, mode = 'cost'):
+    def __init__(self, profiler: Profiler, replicas: list[Replica], candidates, cols_to_table, templates, queries, space_budget, alpha, beta, mode = 'cost'):
         '''
         The mode is how DINA evaluates rewards.
         - `cost`: we use PostgreSQL's cost estimator to evaluate the performance of indexes
@@ -24,7 +28,6 @@ class IndexSelectionEnv(gym.Env):
         self.profiler = profiler
         self.replicas = replicas
         self.candidates = candidates
-        self.candidate_sizes = candidate_sizes
         self.cols_to_table = cols_to_table
         self.mode = mode
         self.space_budget = space_budget
@@ -33,6 +36,7 @@ class IndexSelectionEnv(gym.Env):
 
         self.replica_cache = [0 for i in range(len(replicas))]
         self.spaces_used = [0 for i in range(len(replicas))]
+        self.candidate_sizes = {}
 
         self.num_replicas = len(replicas)
         self.num_candidates = len(candidates)
@@ -52,8 +56,15 @@ class IndexSelectionEnv(gym.Env):
         otherwise.
         '''
         self.observation_space = gym.spaces.MultiBinary([self.num_replicas, self.num_candidates])
-        self.action_space = gym.spaces.Discrete(self.num_candidates * self.num_replicas)
+        
+        '''
+        The action space is the set of index configurations on each replica, but each candidate on
+        each replica may either be created or dropped.
+        '''
+        self.action_space = gym.spaces.Discrete(self.num_candidates * self.num_replicas * 2)
+        self.action_drop_threshold = self.action_space.n // 2
 
+        self._drop_all_indexes()
         self._compute_baseline()
     
     def _get_obs(self):
@@ -80,50 +91,89 @@ class IndexSelectionEnv(gym.Env):
         observation = self._get_obs()
         info = self._get_info()
 
+        self.profiler.count = 0
+
+        self._drop_all_indexes()
+
         return observation, info
     
-    def step(self, action):
+    def step(self, action: int):
+        '''
+        `step` is called whenever one action is performed by the reinforcement learning
+        algorithm. This action operates on the current state, and returns a tuple representing
+        the reward computed for this step, along with the next state.
+
+        `action` is an integer, and represents an index into the state space, multiplied by
+        2. If `action` is less than half the size of the action space, we are dropping the
+        index; if more than half, we are creating the index. The state space
+        is a (num_replicas, num_candidates) array, so the action represents the
+        candidate in a given replica that we would like to toggle (ie, add to the index
+        configuration if we are in that half of the action space, or drop otherwise).
+
+        We return a tuple:
+        - `observation`, the updated state after this action completes
+        - `reward`, a float representing the value of this action
+        - `terminated`, whether this learning epoch should be terminated
+        - `truncated`, the functionality of which I'm honestly not sure about (`False`)
+        - `info`, more information about the environment's state (see `IndexSelectionEnv#_get_info`)
+        '''
+        print(f'* epoch {self.profiler.count}')
+        print('action:', action)
         self.profiler.count_up()
-        self.profiler.time_in('step')
-        candidate_to_add = action % self.num_candidates
+        #self.profiler.time_in('step')
+        creating = action > self.action_drop_threshold
+        action = action // 2 # now represents an index into the observation space
+        candidate_to_toggle = action % self.num_candidates
         replica_to_update = action // self.num_candidates
 
-        should_return = True
-        for replica in range(self.num_replicas):
-            spaces = [self.candidate_sizes[self.candidates[i]] for i, e in enumerate(self._state[replica]) if e == 0]
-            if len(spaces) == 0:
-                continue
-            smallest_available = min(spaces)
-            if self.space_budget - self.spaces_used[replica] > smallest_available:
-                should_return = False
-                break
-        if should_return:
-            # all of our space budgets are 'full'
-            self.profiler.time_out()
-            return self._step_early_termination()
-        
-        self.profiler.time_out()
-        self._update_mask()
-        self.profiler.time_in('step')
-
-        if self._state[replica_to_update][candidate_to_add] == 0:
-            required_space = self.candidate_sizes[self.candidates[candidate_to_add]]
-            available_space = self.space_budget - self.spaces_used[replica_to_update]
-            if required_space > available_space:
+        if creating:
+            self.profiler.time_in('step.compute_size')
+            if self._state[replica_to_update][candidate_to_toggle] != 0:
                 self.profiler.time_out()
-                return self._step_early_continuation()
-                #self._drop_candidates_to_free(required_space - available_space, replica_to_update, candidate_to_add)
+                return self._step_early_continuation(reward=-500)
+            print(f'adding {candidate_to_toggle} on {replica_to_update}')
+            required_space = self._get_candidate_size(self.candidates[candidate_to_toggle])
+            available_space = self.space_budget - self.spaces_used[replica_to_update]
+            #if required_space > available_space:
+            #    self.profiler.time_out()
+            #    return self._step_early_continuation(reward=-1000)
 
-            self._state[replica_to_update][candidate_to_add] = 1
-            self._action_mask[(replica_to_update * self.num_candidates) + candidate_to_add] = 0
+            self.profiler.time_out()
+            self.profiler.time_in('step.construct_added_index')
+            self._state[replica_to_update][candidate_to_toggle] = 1
             self.spaces_used[replica_to_update] += required_space
+            self._construct_index(candidate_to_toggle, self.replicas[replica_to_update])
 
-        reward = self.reward(self.candidates[candidate_to_add], replica_to_update)
+            if self.space_budget < self.spaces_used[replica_to_update]:
+                self._update_mask(replica_to_update)
+        else:
+            self.profiler.time_in('step.compute_size')
+            if self._state[replica_to_update][candidate_to_toggle] != 1:
+                self.profiler.time_out()
+                return self._step_early_continuation(reward=-500)
+            print(f'removing {candidate_to_toggle} on {replica_to_update}')
+            required_space = self._get_candidate_size(self.candidates[candidate_to_toggle])
+            self._state[replica_to_update][candidate_to_toggle] = 0
+            self.spaces_used[replica_to_update] -= required_space
+
+            self.profiler.time_in('step.drop_index')
+            self._drop_index(candidate_to_toggle, self.replicas[replica_to_update])
+
+        self.profiler.time_out()
+        self.profiler.time_in('step.reward')
+        reward = self.reward(replica_to_update)
+        self.profiler.time_out()
+        truncated = False
+
+        self.profiler.time_in('step.budget_check')
+        # are all space budgets full? if so, terminate
+        space_budgets_are_full = [1 if i > self.space_budget else 0 for i in self.spaces_used]
+        terminated = sum(space_budgets_are_full) == self.num_replicas
+
         observation = self._get_obs()
         info = self._get_info()
 
-        terminated = False # ?
-        truncated = False
+        print(f'spaces used after this epoch: {self.spaces_used} / {self.space_budget}')
 
         self.profiler.time_out()
 
@@ -157,8 +207,38 @@ class IndexSelectionEnv(gym.Env):
         terminated = False
         truncated = False
         return observation, reward, terminated, truncated, info
+    
+    def _get_candidate_size(self, candidate: tuple[str]) -> int:
+        '''
+        Determining whether or not we can add this candidate to the state
+        requires us to know the size of the candidate. If this is our first
+        time encountering this candidate, we will compute its size and cache
+        it for later. But if we can return a value from the cache, we will
+        do so.
+        '''
+        if candidate in self.candidate_sizes:
+            return self.candidate_sizes[candidate]
+        
+        computed_size = 0
 
-    def reward(self, proposed_configuration, updated_replica):
+        try:
+            with psycopg.connect(self.replicas[0].connection_string()) as conn:
+                with conn.cursor() as cur:
+                    # all of the columns in the candidate should be in the same table
+                    # so we can pick the first one and find which table it's in
+                    table = self.cols_to_table[candidate[0]]
+                    cur.execute('CREATE INDEX candidate_index ON %s (%s);' % (table, ', '.join(candidate)))
+                    cur.execute("SELECT pg_table_size('candidate_index');")
+                    computed_size = cur.fetchone()[0]
+                    cur.execute('DROP INDEX candidate_index;')
+        except Exception as err:
+            print('got an exception in the database connection')
+            print(err)
+
+        self.candidate_sizes[candidate] = computed_size
+        return computed_size
+
+    def reward(self, updated_replica):
         benchmark_fn = None
         if self.mode == 'cost':
             benchmark_fn = self._benchmark_index_cost
@@ -168,10 +248,9 @@ class IndexSelectionEnv(gym.Env):
         total_cost = 0
         replica_costs = [x for x in self.replica_cache]
         
-        candidate = construct_indexes_from_candidate(proposed_configuration, self.cols_to_table)
         self.profiler.time_out()
         self.profiler.time_in('database.benchmark')
-        total_cost = benchmark_fn(self.queries, candidate, self.replicas[updated_replica])
+        total_cost = benchmark_fn(self.queries, self.replicas[updated_replica])
         self.profiler.time_out()
         self.profiler.time_in('step')
 
@@ -196,7 +275,7 @@ class IndexSelectionEnv(gym.Env):
             return 1000
         return 1 / skew
 
-    def _benchmark_index_exe(self, queries: list[str], candidate: dict[str, list[str]], replica: Replica) -> float | None:
+    def _benchmark_index_exe(self, queries: list[str], replica: Replica) -> float | None:
         '''
         Returns the *actual execution time* of the given queries,
         provided that the candidate index described in `cols_to_index`
@@ -207,22 +286,12 @@ class IndexSelectionEnv(gym.Env):
         try:
             with psycopg.connect(replica.connection_string()) as conn:
                 with conn.cursor() as cur:
-                    indexes_required = 0
-                    
-                    for table, columns in candidate.items():
-                        indexes_required += 1
-                        cur.execute('CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns)))
-                    
                     tic = time.time()
 
                     for query in queries:
                         cur.execute('%s;' % query)
 
                     toc = time.time()
-                    
-                    while indexes_required > 0:
-                        cur.execute('DROP INDEX candidate_index_%d;' % indexes_required)
-                        indexes_required -= 1
 
                     return toc - tic
         except Exception as err:
@@ -230,7 +299,7 @@ class IndexSelectionEnv(gym.Env):
             print(err)
             return 0
 
-    def _benchmark_index_cost(self, queries: list[str], candidate: dict[str, list[str]], replica: Replica) -> float | None:
+    def _benchmark_index_cost(self, queries: list[str], replica: Replica) -> float | None:
         '''
         Returns the *estimated execution cost* of the given queries,
         as given by PostgreSQL's cost estimation module, provided
@@ -243,28 +312,78 @@ class IndexSelectionEnv(gym.Env):
             with psycopg.connect(replica.connection_string()) as conn:
                 with conn.cursor() as cur:
                     REGEX = 'cost=([0-9]+\\.[0-9]+)'
-                    
-                    indexes_required = 0
                     cost = 0
-                    
-                    for table, columns in candidate.items():
-                        indexes_required += 1
-                        cur.execute('CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns)))
-                    
+
                     for query in queries:
                         cur.execute('EXPLAIN %s;' % query)
                         if after_timing := re.search(REGEX, cur.fetchone()[0], re.IGNORECASE):
                             cost += float(after_timing.group(1))
-                    
-                    while indexes_required > 0:
-                        cur.execute('DROP INDEX candidate_index_%d;' % indexes_required)
-                        indexes_required -= 1
                     
                     return cost
         except Exception as err:
             print('got an exception in the database connection')
             print(err)
             return 0
+        
+    def _construct_index(self, candidate_index: int, replica: Replica):
+        '''
+        Constructs one index candidate on the given replica.
+        Throws if the index candidate already exists (this should not happen!)
+        '''
+        try:
+            with psycopg.connect(replica.connection_string()) as conn:
+                with conn.cursor() as cur:
+                    candidate = self.candidates[candidate_index]
+                    table = self.cols_to_table[candidate[0]]
+                    cur.execute('CREATE INDEX candidate_index_%d ON %s (%s);' % (candidate_index, table, ', '.join(candidate)))
+        except Exception as err:
+            print(f'got an exception in the database connection while constructing index {candidate_index} on replica {replica.id}')
+            print(err)
+    
+    def _drop_index(self, candidate_index: int, replica: Replica):
+        '''
+        Drops one index candidate from the given replica.
+        '''
+        try:
+            with psycopg.connect(replica.connection_string()) as conn:
+                with conn.cursor() as cur:
+                    cur.execute('DROP INDEX candidate_index_%d;' % candidate_index)
+        except Exception as err:
+            print(f'got an exception in the database connection while dropping index {candidate_index} on replica {replica.id}')
+            print(err)
+    
+    def _drop_all_indexes(self):
+        '''
+        Drop every index we've constructed.
+        Necessary to reset the environment state.
+        '''
+        # https://stackoverflow.com/questions/34010401/how-can-i-drop-all-indexes-of-a-table-in-postgres
+        query_text = \
+'''
+DO
+$do$
+DECLARE
+   _sql text;
+BEGIN   
+   SELECT 'DROP INDEX ' || string_agg(indexrelid::regclass::text, ', ')
+   FROM   pg_index  i
+   LEFT   JOIN pg_depend d ON d.objid = i.indexrelid
+                          AND d.deptype = 'i'
+   WHERE  i.indrelid = '%s'::regclass  -- possibly schema-qualified
+   AND    d.objid IS NULL                      -- no internal dependency
+   INTO   _sql;
+   
+   IF _sql IS NOT NULL THEN                    -- only if index(es) found
+     EXECUTE _sql;
+   END IF;
+END
+$do$;
+'''
+        for replica in  self.replicas:
+            with psycopg.connect(replica.connection_string()) as conn:
+                with conn.cursor() as cur:
+                    for table in set(self.cols_to_table.values()):
+                        cur.execute(query_text % table)
     
     def _compute_baseline(self):
         benchmark_fn = None
@@ -275,7 +394,7 @@ class IndexSelectionEnv(gym.Env):
 
         baseline = 0
         for replica in self.replicas:
-            if cost := benchmark_fn(self.queries, {}, replica):
+            if cost := benchmark_fn(self.queries, replica):
                 baseline += cost
         
         self.baseline = baseline
@@ -301,27 +420,10 @@ class IndexSelectionEnv(gym.Env):
         
         self.spaces_used[replica] -= space_freed
 
-    def _update_mask(self, refresh = False):
+    def _update_mask(self, replica: int):
         '''
-        Update the action state mask.
+        Update the action state mask. Marks this replica as 'complete'.
         '''
-        self.profiler.time_in('masking')
-        # initially: exclude all redundant actions (we can't add the same candidate twice)
-        if refresh:
-            self._action_mask = (1 - self._state).flatten().astype(np.int8)
-
-        for replica in range(self.num_replicas):
-            smallest_available = min([self.candidate_sizes[self.candidates[i]] for i, e in enumerate(self._state[replica]) if e == 0])
-            space_free = self.space_budget - self.spaces_used[replica]
-            lower_bound = replica * self.num_candidates
-            upper_bound = (replica + 1) * self.num_candidates
-            if space_free < smallest_available:
-                # this replica's space budget is full    
-                #print(f'self._action_mask[{lower_bound}:{upper_bound}] = 0')
-                self._action_mask[lower_bound:upper_bound] = 0
-                continue
-            for idx, candidate in enumerate(self.candidates):
-                size = self.candidate_sizes[candidate]
-                if space_free < size:
-                    self._action_mask[lower_bound + idx] = 0
-        self.profiler.time_out()
+        lower_bound = replica * self.num_candidates
+        upper_bound = (replica + 1) * self.num_candidates
+        self._action_mask[lower_bound:upper_bound] = 0

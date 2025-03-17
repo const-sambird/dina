@@ -1,7 +1,7 @@
 import pickle
 import psycopg
 import re
-from util import extract_columns_from_query, construct_indexes_from_candidate, drop_one
+from util import extract_columns_from_query, construct_indexes_from_candidate, drop_one, powerset
 from profiling import Profiler
 from database import Replica
 
@@ -38,9 +38,9 @@ class Preprocessor:
         self._read_columns()
         self.profiler.time_out()
         self.get_indexable_columns(self.templates)
-        self.profiler.time_in('database.preprocess')
-        self.get_candidate_indexes(space_budget)
-        self.profiler.time_out()
+        #self.profiler.time_in('database.preprocess')
+        #self.get_candidate_indexes(space_budget)
+        #self.profiler.time_out()
 
         print(self.candidates)
     
@@ -75,18 +75,19 @@ class Preprocessor:
             print(err)
     
     def get_indexable_columns(self, templates):
-        self.indexable = {}
+        self.candidates = {}
 
         for idx, template in enumerate(templates):
             matches = extract_columns_from_query(template, self.cols_to_table)
             for table, columns in matches.items():
-                if table not in self.indexable:
-                    self.indexable[table] = set()
-                self.indexable[table].add(tuple(sorted(columns)))
+                if table not in self.candidates:
+                    self.candidates[table] = set()
+                for index in powerset(sorted(columns)):
+                    if len(index) == 0: continue
+                    self.candidates[table].add(index)
         
         # flatten dict of sets of tuples into a list of tuples
-        self.indexable = [x for v in self.indexable.values() for x in v]
-        print(self.indexable)
+        self.candidates = list(set([x for v in self.candidates.values() for x in v]))
     
     def get_candidate_indexes(self, space_budget):
         self.candidates = []

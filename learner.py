@@ -62,7 +62,7 @@ if __name__ == '__main__':
 
     ALPHA = 0.5
     BETA = 0.5
-    SPACE_BUDGET = 2e6
+    SPACE_BUDGET = 2e9
 
     '''
     ENVIRONMENT
@@ -76,7 +76,7 @@ if __name__ == '__main__':
         id='gymnasium_env/IndexSelectionEnv',
         entry_point=IndexSelectionEnv
     )
-    env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, profiler=profiler, replicas=replicas, candidates=p.candidates, cols_to_table=p.cols_to_table, candidate_sizes=p.candidate_sizes, templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA, mode = 'cost')
+    env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, profiler=profiler, replicas=replicas, candidates=p.candidates, cols_to_table=p.cols_to_table, templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA, mode = 'cost')
 
     # Get number of actions from gym action space
     n_actions = env.action_space.n
@@ -117,12 +117,11 @@ if __name__ == '__main__':
                 # found, so we pick action with the larger expected reward.
                 return policy_net(state).max(1).indices.view(1, 1)
         else:
-            return torch.tensor([[env.action_space.sample(mask=mask)]], device=device, dtype=torch.long)
+            return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
 
     episode_durations = []
 
     def plot_durations(show_result=False):
-        return
         plt.figure(1)
         durations_t = torch.tensor(episode_durations, dtype=torch.float)
         if show_result:
@@ -189,7 +188,7 @@ if __name__ == '__main__':
 
     def learn():
         # this constant is from the original DINA code. i imagine it's pretty arbitrary
-        num_episodes = 100
+        num_episodes = 10
 
         for i_episode in range(num_episodes):
             print('*** this is episode', i_episode)
@@ -205,7 +204,7 @@ if __name__ == '__main__':
 
                 if terminated:
                     next_state = None
-                    return_state = state
+                    return_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
                 else:
                     next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
 
@@ -241,8 +240,8 @@ if __name__ == '__main__':
 
     print('Complete')
     plot_durations(show_result=True)
-    #plt.ioff()
-    #plt.show()
+    plt.ioff()
+    plt.show()
 
     print('Generating routeing table...')
     # router expects the format [ { table: [cols,] } ]
@@ -271,7 +270,7 @@ if __name__ == '__main__':
         print(replica)
         for can_idx, include in enumerate(replica):
             if include == 1:
-                print('-', p.candidates[can_idx], '(size: %d)' % p.candidate_sizes[p.candidates[can_idx]])
+                print('-', p.candidates[can_idx])
     print('ROUTEING TABLE')
     print(router.routes)
     print('PROFILING RESULTS')
