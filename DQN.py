@@ -7,7 +7,7 @@ class DQN(nn.Module):
     def __init__(self, n_observations, n_actions, layer_features):
         super(DQN, self).__init__()
         self.layers = nn.ModuleList()
-        self.layers.append(StateEncoder(n_observations))
+        self.layers.append(nn.Flatten())
         self.layers.append(nn.Linear(n_observations, layer_features[0]))
         for i in range(2, len(layer_features)):
             self.layers.append(nn.Linear(layer_features[i-1], layer_features[i]))

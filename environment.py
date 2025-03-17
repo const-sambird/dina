@@ -156,6 +156,7 @@ class IndexSelectionEnv(gym.Env):
             self._state[replica_to_update][candidate_to_toggle] = 0
             self.spaces_used[replica_to_update] -= required_space
 
+            self.profiler.time_out()
             self.profiler.time_in('step.drop_index')
             self._drop_index(candidate_to_toggle, self.replicas[replica_to_update])
 
