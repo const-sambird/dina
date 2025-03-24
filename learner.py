@@ -84,16 +84,16 @@ if __name__ == '__main__':
     state, info = env.reset()
     n_observations = np.size(state)
 
-    def create_nets(quantum=True) -> tuple[DQN | QuantumDQN]:
+    def create_nets(n_qubits, quantum=True) -> tuple[DQN | QuantumDQN]:
         if quantum:
-            policy_net = QuantumDQN(n_observations, n_actions).to(device)
-            target_net = QuantumDQN(n_observations, n_actions).to(device)
+            policy_net = QuantumDQN(n_observations, n_qubits, n_actions, torch_device=device).to(device)
+            target_net = QuantumDQN(n_observations, n_qubits, n_actions, torch_device=device).to(device)
         else:
             policy_net = DQN(n_observations, n_actions, NN_HIDDEN_LAYERS).to(device)
             target_net = DQN(n_observations, n_actions, NN_HIDDEN_LAYERS).to(device)
         return policy_net, target_net
 
-    policy_net, target_net = create_nets(quantum=False)
+    policy_net, target_net = create_nets(8, quantum=True)
     target_net.load_state_dict(policy_net.state_dict())
 
     optimizer = optim.AdamW(policy_net.parameters(), lr=LEARNING_RATE, amsgrad=True)
@@ -188,7 +188,7 @@ if __name__ == '__main__':
 
     def learn():
         # this constant is from the original DINA code. i imagine it's pretty arbitrary
-        num_episodes = 100
+        num_episodes = 5
 
         for i_episode in range(num_episodes):
             print('*** this is episode', i_episode)

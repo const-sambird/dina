@@ -21,22 +21,24 @@ class StateEncoder(nn.Module):
     We continue in a similar fashion across all candidates, so the (num_replicas, num_candidates)
     state matrix becomes a (num_candidates,) 1-D state vector.
     '''
-    def __init__(self, num_candidates):
+    def __init__(self, num_candidates, num_qubits, torch_device):
         super(StateEncoder, self).__init__()
         self.num_candidates = num_candidates
+        self.num_qubits = num_qubits
+        self.output_size = math.ceil(num_candidates / num_qubits)
+        self.torch_device = torch_device
     
     def forward(self, x):
-        return torch.vmap(self._encode_state)(x)
+        return self._encode_state(x)
 
-    def _encode_state(self, state):
-        state = state.T
-
-        for idx, column in enumerate(state):
-            # bit of a workaround: n is 1 if present and 0 if not; we only
-            # want to add to the sum if the index is present
-            state[idx][0] = sum([(2**i)*n for i, n in enumerate(column)])
-
-        return state[:,0]
+    def _encode_state(self, batch):
+        batch_size = len(batch)
+        output = torch.zeros((batch_size, self.num_qubits), device=self.torch_device)
+        for i_t, tensor in enumerate(batch):
+            chunks = torch.tensor_split(tensor, self.num_qubits)
+            for i_c, chunk in enumerate(chunks):
+                output[i_t][i_c] = sum([(2**i)*n for i, n in enumerate(chunk)])
+        return output
     
 class AngleEncoder(nn.Module):
     '''
@@ -90,3 +92,9 @@ class StateDecoder(nn.Module):
         result = torch.where(result > 0, result, 0)
 
         return result.T
+
+class ActionDecoder(nn.Module):
+    '''
+    Our QNN gives us a 2^num_qubits-dimensional tensor as an output, where
+    every 
+    '''
