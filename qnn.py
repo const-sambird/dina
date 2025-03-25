@@ -101,7 +101,7 @@ def build_qnn_model(n_inputs: int, n_qubits: int, param_layers: int, n_outputs: 
     circuit.compose(ansatz, inplace=True)
     circuit.draw(output='mpl')
     plt.show()
-    sampler = Sampler(default_shots=256)
+    sampler = Sampler()
     qnn = SamplerQNN(
         circuit=circuit,
         input_params=feature_map.parameters,

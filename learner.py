@@ -29,6 +29,11 @@ if __name__ == '__main__':
         "cpu"
     )
 
+    if torch.cuda.is_available():
+        print('found CUDA!')
+    else:
+        print('****** torch did not find CUDA! *******')
+
     def get_replicas(path = './replicas.csv'):
         replicas = []
         with open(path, 'r') as infile:
@@ -83,6 +88,8 @@ if __name__ == '__main__':
     # Get the number of state observations
     state, info = env.reset()
     n_observations = np.size(state)
+
+    print(f'{n_actions} actions, 8 qubits (encodes {2**8})')
 
     def create_nets(n_qubits, quantum=True) -> tuple[DQN | QuantumDQN]:
         if quantum:
@@ -188,7 +195,7 @@ if __name__ == '__main__':
 
     def learn():
         # this constant is from the original DINA code. i imagine it's pretty arbitrary
-        num_episodes = 5
+        num_episodes = 100
 
         for i_episode in range(num_episodes):
             print('*** this is episode', i_episode)
