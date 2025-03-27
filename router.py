@@ -5,9 +5,10 @@ from database import Replica
 from profiling import Profiler
 
 class Router:
-    def __init__(self, queries, configurations, replicas: list[Replica], profiler: Profiler):
+    def __init__(self, queries, configurations, tables: list[str], replicas: list[Replica], profiler: Profiler):
         self.queries = queries
         self.configurations = configurations
+        self.tables = tables
         self.replicas = replicas
         self.num_replicas = len(replicas)
         self.profiler = profiler
@@ -44,6 +45,8 @@ class Router:
             print(err)
     
     def evaluate(self):
+        for replica in self.replicas:
+            replica.drop_all_indexes(self.tables)
         self.profiler.time_in('database.route')
         self._evaluate(self.configurations)
         self.profiler.time_out()

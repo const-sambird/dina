@@ -1,3 +1,5 @@
+import psycopg
+
 class Replica:
     def __init__(self, id, hostname, port = 5432, dbname = 'tpchdb', user = 'sam'):
         self.id = id
@@ -8,3 +10,31 @@ class Replica:
 
     def connection_string(self):
         return f'host={self.hostname} port={self.port} dbname={self.dbname} user={self.user}'
+    
+    def drop_all_indexes(self, tables):
+        try:
+            with psycopg.connect(self.connection_string()) as conn:
+                with conn.cursor() as cur:
+                    for table in tables:
+                        # https://stackoverflow.com/questions/34010401/how-can-i-drop-all-indexes-of-a-table-in-postgres
+                        cur.execute('DO'
+                                    '$do$'
+                                    'DECLARE'
+                                    '   _sql text;'
+                                    'BEGIN   '
+                                    '   SELECT \'DROP INDEX \' || string_agg(indexrelid::regclass::text, \', \');'
+                                    '   FROM   pg_index  i'
+                                    '   LEFT   JOIN pg_depend d ON d.objid = i.indexrelid'
+                                    '                          AND d.deptype = \'i\''
+                                    '   WHERE  i.indrelid = \'%s\'::regclass  -- possibly schema-qualified'
+                                    '   AND    d.objid IS NULL                      -- no internal dependency'
+                                    '   INTO   _sql;'
+                                    '   '
+                                    '   IF _sql IS NOT NULL THEN                    -- only if index(es) found'
+                                    '     EXECUTE _sql;'
+                                    '   END IF;'
+                                    'END'
+                                    '$do$;' % table)
+        except Exception as e:
+            print(f'error while trying to drop indexes in replica {self.id}!')
+            print(e)

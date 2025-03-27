@@ -38,9 +38,6 @@ class Preprocessor:
         self._read_columns()
         self.profiler.time_out()
         self.get_indexable_columns(self.templates)
-        #self.profiler.time_in('database.preprocess')
-        #self.get_candidate_indexes(space_budget)
-        #self.profiler.time_out()
 
         print(self.candidates)
     
@@ -87,6 +84,7 @@ class Preprocessor:
                     self.candidates[table].add(index)
         
         # flatten dict of sets of tuples into a list of tuples
+        self.tables = list(self.candidates.keys())
         self.candidates = list(set([x for v in self.candidates.values() for x in v]))
     
     def get_candidate_indexes(self, space_budget):

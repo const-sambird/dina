@@ -582,7 +582,7 @@ def do_load(conns, query_root, data_dir):
         print(i, "done creating indexes and foreign keys")
 
 def main(replicas: list[Replica], routes: list[int], index_config,
-         scale=10, num_streams=3, verbose=False, read_only=False):
+         scale=10, verbose=False, read_only=False):
     # TODO: unify doctsring, some is in reStructuredText, some is Google style
     # TODO: finish sphinx integration
     """Runs main code for three different phases.
@@ -604,6 +604,7 @@ def main(replicas: list[Replica], routes: list[int], index_config,
     :return: no return value, uses exit(1) if something goes wrong
     """
     run_timestamp = "run_%s" % time.strftime("%Y%m%d_%H%M%S", time.gmtime())
+    num_streams = scale_to_num_streams(scale)
 
     conns = [
         pgdb.PGDB(replica.hostname, replica.port, replica.dbname, replica.user, '')
@@ -638,3 +639,34 @@ def main(replicas: list[Replica], routes: list[int], index_config,
     calc_metrics(RESULTS_DIR, run_timestamp, scale, num_streams)
     for conn in conns:
         conn.close()
+
+def scale_to_num_streams(scale):
+    """Converts scale factor to number of streams as defined in
+    https://github.com/slavong/tpch-pgsql/blob/master/iceis2012.pdf
+    on page 6 in section 3.3.4 Throughput Tests in table 2
+
+    :param scale: scale factor, 1.0 = 1GB
+    :return: number of streams
+    """
+    num_streams = 2
+    if scale <= 1:
+        num_streams = 2
+    elif scale <= 10:
+        num_streams = 3
+    elif scale <= 30:
+        num_streams = 4
+    elif scale <= 100:
+        num_streams = 5
+    elif scale <= 300:
+        num_streams = 6
+    elif scale <= 1000:
+        num_streams = 7
+    elif scale <= 3000:
+        num_streams = 8
+    elif scale <= 10000:
+        num_streams = 9
+    elif scale <= 30000:
+        num_streams = 10
+    else:
+        num_streams = 11
+    return num_streams

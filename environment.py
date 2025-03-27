@@ -356,33 +356,8 @@ class IndexSelectionEnv(gym.Env):
         Drop every index we've constructed.
         Necessary to reset the environment state.
         '''
-        # https://stackoverflow.com/questions/34010401/how-can-i-drop-all-indexes-of-a-table-in-postgres
-        query_text = \
-'''
-DO
-$do$
-DECLARE
-   _sql text;
-BEGIN   
-   SELECT 'DROP INDEX ' || string_agg(indexrelid::regclass::text, ', ')
-   FROM   pg_index  i
-   LEFT   JOIN pg_depend d ON d.objid = i.indexrelid
-                          AND d.deptype = 'i'
-   WHERE  i.indrelid = '%s'::regclass  -- possibly schema-qualified
-   AND    d.objid IS NULL                      -- no internal dependency
-   INTO   _sql;
-   
-   IF _sql IS NOT NULL THEN                    -- only if index(es) found
-     EXECUTE _sql;
-   END IF;
-END
-$do$;
-'''
         for replica in  self.replicas:
-            with psycopg.connect(replica.connection_string()) as conn:
-                with conn.cursor() as cur:
-                    for table in set(self.cols_to_table.values()):
-                        cur.execute(query_text % table)
+            replica.drop_all_indexes()
     
     def _compute_baseline(self):
         benchmark_fn = None
