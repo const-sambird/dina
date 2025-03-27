@@ -2,10 +2,13 @@ from itertools import chain, combinations
 from random import randrange
 import re
 
-def powerset(iterable):
+def powerset(iterable, max_len):
     # https://docs.python.org/2/library/itertools.html#recipes
     s = list(iterable)
-    return chain.from_iterable(combinations(s, r) for r in range(len(s)+1))
+    if max_len is not None:
+        return chain.from_iterable(combinations(s, r) for r in range(min(len(s), max_len)+1))
+    else:
+        return chain.from_iterable(combinations(s, r) for r in range(len(s)+1))
 
 def extract_table_from_query(query: str) -> str | None:
         REGEX = '^( )*(([a-zA-Z0-9]|\\.|_|-)+)( )*'

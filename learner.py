@@ -81,12 +81,12 @@ def plot_durations(show_result=False):
         plt.title('Training...')
     plt.xlabel('Episode')
     plt.ylabel('Duration')
-    plt.plot(durations_t.numpy())
+    #plt.plot(durations_t.numpy())
     # Take 100 episode averages and plot them too
     if len(durations_t) >= 100:
         means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
         means = torch.cat((torch.zeros(99), means))
-        plt.plot(means.numpy())
+        #plt.plot(means.numpy())
 
     plt.pause(0.001)  # pause a bit so that plots are updated
 
@@ -194,6 +194,7 @@ def create_arguments():
     parser.add_argument('-b', '--space-budget', type=int, default=1e9, help='the amount of space on each replica that the indexes are allowed to take (in bytes)')
     parser.add_argument('-s', '--scale-factor', type=int, default=1, help='TPC-H scale factor')
     parser.add_argument('-e', '--num-epochs', type=int, default=100, help='number of learning episodes')
+    parser.add_argument('-w', '--max-index-width', type=int, help='maximum number of columns that may form an index')
 
     # these ones can probably be left to the defaults
     parser.add_argument('--batch-size', type=int, default=32, help='the batch size to feed into the neural network')
@@ -244,13 +245,15 @@ if __name__ == '__main__':
 
     if torch.cuda.is_available():
         print('found CUDA!')
+    elif torch.backends.mps.is_available():
+        print('found MPS!')
     else:
-        print('****** torch did not find CUDA! *******')
+        print('****** torch did not find CUDA/MPS! *******')
 
     tic = time.time()
     profiler = Profiler()
     replicas = get_replicas()
-    p = Preprocessor(profiler, replicas[0])
+    p = Preprocessor(profiler, replicas[0], args.max_index_width)
     p.preprocess(SPACE_BUDGET)
     gym.register(
         id='gymnasium_env/IndexSelectionEnv',
@@ -264,7 +267,10 @@ if __name__ == '__main__':
     state, info = env.reset()
     n_observations = np.size(state)
 
-    print(f'{n_actions} actions, {NUM_QUBITS} qubits (encodes {2**NUM_QUBITS})')
+    if IS_QUANTUM:
+        print(f'{n_actions} actions, {NUM_QUBITS} qubits (encodes {2**NUM_QUBITS})')
+    else:
+        print(f'{n_actions} actions')
 
     policy_net, target_net = create_nets(NUM_QUBITS, IS_QUANTUM, n_observations, n_actions, device)
     target_net.load_state_dict(policy_net.state_dict())
@@ -278,7 +284,7 @@ if __name__ == '__main__':
     print('Complete')
     plot_durations(show_result=True)
     plt.ioff()
-    plt.show()
+    #plt.show()
 
     print('Generating routeing table...')
     # router expects the format [ { table: [cols,] } ]

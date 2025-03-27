@@ -10,7 +10,7 @@ CLUSTER_ASSIGNMENT_PATH = './QueryBot5000/online-clustering-results/None-0.8-ass
 COVERAGE_PATH           = './QueryBot5000/cluster-coverage/coverage.pickle'
 
 class Preprocessor:
-    def __init__(self, profiler: Profiler, database: Replica):
+    def __init__(self, profiler: Profiler, database: Replica, max_index_width: int):
         '''
         Instantiate the preprocessing module.
 
@@ -21,6 +21,7 @@ class Preprocessor:
         self.workload = []
         self.profiler = profiler
         self.database = database
+        self.max_index_width = max_index_width
     
     def _load_clusters(self):
         try:
@@ -79,7 +80,7 @@ class Preprocessor:
             for table, columns in matches.items():
                 if table not in self.candidates:
                     self.candidates[table] = set()
-                for index in powerset(sorted(columns)):
+                for index in powerset(sorted(columns), self.max_index_width):
                     if len(index) == 0: continue
                     self.candidates[table].add(index)
         

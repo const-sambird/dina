@@ -8,7 +8,6 @@ from qiskit_machine_learning.connectors import TorchConnector
 
 import torch
 from torch import nn
-from matplotlib import pyplot as plt
 
 from encoding import AngleEncoder, AmplitudeEncoder, StateEncoder, ActionDecoder
 
@@ -100,7 +99,6 @@ def build_qnn_model(n_inputs: int, n_qubits: int, param_layers: int, n_outputs: 
     circuit.compose(feature_map, inplace=True)
     circuit.compose(ansatz, inplace=True)
     circuit.draw(output='mpl')
-    plt.show()
     sampler = Sampler()
     qnn = SamplerQNN(
         circuit=circuit,
@@ -156,13 +154,7 @@ class QuantumDQN(nn.Module):
         self.n_actions = n_actions
     
     def forward(self, x):
-        print('--- input tensor')
         x = self.flatten(x)
-        print(x)
         x = self.state_encoder(x)
-        print('--- encoded tensor')
-        print(x)
         x = self.qnn(x)
-        print('--- qnn result')
-        print(x)
         return torch.narrow(x, 1, 0, self.n_actions - 1)
