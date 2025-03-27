@@ -17,24 +17,28 @@ class Replica:
                 with conn.cursor() as cur:
                     for table in tables:
                         # https://stackoverflow.com/questions/34010401/how-can-i-drop-all-indexes-of-a-table-in-postgres
-                        cur.execute('DO'
-                                    '$do$'
-                                    'DECLARE'
-                                    '   _sql text;'
-                                    'BEGIN   '
-                                    '   SELECT \'DROP INDEX \' || string_agg(indexrelid::regclass::text, \', \');'
-                                    '   FROM   pg_index  i'
-                                    '   LEFT   JOIN pg_depend d ON d.objid = i.indexrelid'
-                                    '                          AND d.deptype = \'i\''
-                                    '   WHERE  i.indrelid = \'%s\'::regclass  -- possibly schema-qualified'
-                                    '   AND    d.objid IS NULL                      -- no internal dependency'
-                                    '   INTO   _sql;'
-                                    '   '
-                                    '   IF _sql IS NOT NULL THEN                    -- only if index(es) found'
-                                    '     EXECUTE _sql;'
-                                    '   END IF;'
-                                    'END'
-                                    '$do$;' % table)
+                        cur.execute(QUERY_TEMPLATE % table)
         except Exception as e:
             print(f'error while trying to drop indexes in replica {self.id}!')
             print(e)
+
+QUERY_TEMPLATE = '''
+DO
+$do$
+DECLARE
+   _sql text;
+BEGIN   
+   SELECT 'DROP INDEX ' || string_agg(indexrelid::regclass::text, ', ')
+   FROM   pg_index  i
+   LEFT   JOIN pg_depend d ON d.objid = i.indexrelid
+                          AND d.deptype = 'i'
+   WHERE  i.indrelid = '%s'::regclass  -- possibly schema-qualified
+   AND    d.objid IS NULL                      -- no internal dependency
+   INTO   _sql;
+   
+   IF _sql IS NOT NULL THEN                    -- only if index(es) found
+     EXECUTE _sql;
+   END IF;
+END
+$do$;
+'''

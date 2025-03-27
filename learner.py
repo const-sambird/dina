@@ -40,7 +40,7 @@ def get_replicas(path = './replicas.csv'):
             )
     return replicas
 
-def create_nets(n_qubits, quantum=True) -> tuple[DQN | QuantumDQN]:
+def create_nets(n_qubits, quantum, n_observations, n_actions, device) -> tuple[DQN | QuantumDQN]:
     if quantum:
         policy_net = QuantumDQN(n_observations, n_qubits, n_actions, torch_device=device).to(device)
         target_net = QuantumDQN(n_observations, n_qubits, n_actions, torch_device=device).to(device)
@@ -138,7 +138,7 @@ def optimize_model():
 
 def learn():
     # this constant is from the original DINA code. i imagine it's pretty arbitrary
-    num_episodes = 25
+    num_episodes = args.num_epochs
 
     for i_episode in range(num_episodes):
         print('*** this is episode', i_episode)
@@ -210,40 +210,32 @@ def create_arguments():
 
     return parser.parse_args()
 
-
 if __name__ == '__main__':
     args = create_arguments()
     '''
     HYPERPARAMETERS
     move into config
     '''
-    BATCH_SIZE = args['batch-size']
-    DISCOUNT_RATE = args['discount-rate']
-    EPS_START = args['eps-start']
-    EPS_END = args['eps-end']
-    EPS_DECAY = args['eps-decay'] # remove?
-    UPDATE_RATE = args['update-rate']
-    LEARNING_RATE = args['learning-rate']
-    REPLAY_BUFFER_SIZE = args['replay-buffer']
-    NN_HIDDEN_LAYERS = args['hidden-layers']
+    BATCH_SIZE = args.batch_size
+    DISCOUNT_RATE = args.discount_rate
+    EPS_START = args.eps_start
+    EPS_END = args.eps_end
+    EPS_DECAY = args.eps_decay # remove?
+    UPDATE_RATE = args.update_rate
+    LEARNING_RATE = args.learning_rate
+    REPLAY_BUFFER_SIZE = args.replay_buffer
+    NN_HIDDEN_LAYERS = args.hidden_layers
 
-    ALPHA = args['workload-factor']
-    BETA = args['skew-factor']
-    SPACE_BUDGET = args['space-budget']
+    ALPHA = args.workload_factor
+    BETA = args.skew_factor
+    SPACE_BUDGET = args.space_budget
 
-    NUM_QUBITS = args['num-qubits']
-    IS_QUANTUM = args['is-quantum']
+    NUM_QUBITS = args.num_qubits
+    IS_QUANTUM = args.quantum
 
     '''
     ENVIRONMENT
     '''
-
-    policy_net, target_net = create_nets(NUM_QUBITS, quantum=IS_QUANTUM)
-    target_net.load_state_dict(policy_net.state_dict())
-
-    optimizer = optim.AdamW(policy_net.parameters(), lr=LEARNING_RATE, amsgrad=True)
-    memory = ReplayMemory(REPLAY_BUFFER_SIZE)
-
     device = torch.device(
         "cuda" if torch.cuda.is_available() else
         "mps" if torch.backends.mps.is_available() else
@@ -264,7 +256,7 @@ if __name__ == '__main__':
         id='gymnasium_env/IndexSelectionEnv',
         entry_point=IndexSelectionEnv
     )
-    env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, profiler=profiler, replicas=replicas, candidates=p.candidates, cols_to_table=p.cols_to_table, templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA, mode = 'cost')
+    env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, profiler=profiler, replicas=replicas, candidates=p.candidates, tables=p.tables, cols_to_table=p.cols_to_table, templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA, mode = 'cost')
 
     # Get number of actions from gym action space
     n_actions = env.action_space.n
@@ -273,6 +265,12 @@ if __name__ == '__main__':
     n_observations = np.size(state)
 
     print(f'{n_actions} actions, {NUM_QUBITS} qubits (encodes {2**NUM_QUBITS})')
+
+    policy_net, target_net = create_nets(NUM_QUBITS, IS_QUANTUM, n_observations, n_actions, device)
+    target_net.load_state_dict(policy_net.state_dict())
+
+    optimizer = optim.AdamW(policy_net.parameters(), lr=LEARNING_RATE, amsgrad=True)
+    memory = ReplayMemory(REPLAY_BUFFER_SIZE)
 
     config = learn()
     toc = time.time()
@@ -323,5 +321,5 @@ if __name__ == '__main__':
         replicas,
         router.routes,
         parsed_config,
-        scale=args['scale-factor']
+        scale=args.scale_factor
     )
