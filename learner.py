@@ -23,7 +23,7 @@ from profiling import Profiler
 from database import Replica
 from router import Router
 
-def get_replicas(path = './replicas.csv'):
+def get_replicas(path = './replicas.csv') -> list[Replica]:
     replicas = []
     with open(path, 'r') as infile:
         lines = infile.readlines()
@@ -195,6 +195,7 @@ def create_arguments():
     parser.add_argument('-s', '--scale-factor', type=int, default=1, help='TPC-H scale factor')
     parser.add_argument('-e', '--num-epochs', type=int, default=100, help='number of learning episodes')
     parser.add_argument('-w', '--max-index-width', type=int, help='maximum number of columns that may form an index')
+    parser.add_argument('-m', '--benchmark-mode', type=str, choices=['cost', 'exe'], default='cost', help='benchmark execution mode -- \'cost\' for the cost estimator, \'exe\' for actual execution times')
 
     # these ones can probably be left to the defaults
     parser.add_argument('--batch-size', type=int, default=32, help='the batch size to feed into the neural network')
@@ -215,8 +216,9 @@ if __name__ == '__main__':
     args = create_arguments()
     '''
     HYPERPARAMETERS
-    move into config
     '''
+    EXE_MODE = args.benchmark_mode
+
     BATCH_SIZE = args.batch_size
     DISCOUNT_RATE = args.discount_rate
     EPS_START = args.eps_start
@@ -255,11 +257,16 @@ if __name__ == '__main__':
     replicas = get_replicas()
     p = Preprocessor(profiler, replicas[0], args.max_index_width)
     p.preprocess(SPACE_BUDGET)
+
+    # reset from any previous runs
+    for replica in replicas:
+        replica.drop_all_indexes(p.tables, EXE_MODE)
+
     gym.register(
         id='gymnasium_env/IndexSelectionEnv',
         entry_point=IndexSelectionEnv
     )
-    env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, profiler=profiler, replicas=replicas, candidates=p.candidates, tables=p.tables, cols_to_table=p.cols_to_table, templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA, mode = 'cost')
+    env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, profiler=profiler, replicas=replicas, candidates=p.candidates, tables=p.tables, cols_to_table=p.cols_to_table, templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA, mode = EXE_MODE)
 
     # Get number of actions from gym action space
     n_actions = env.action_space.n

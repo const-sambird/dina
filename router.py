@@ -46,7 +46,7 @@ class Router:
     
     def evaluate(self):
         for replica in self.replicas:
-            replica.drop_all_indexes(self.tables)
+            replica.drop_all_indexes(self.tables, 'exe')
         self.profiler.time_in('database.route')
         self._evaluate(self.configurations)
         self.profiler.time_out()

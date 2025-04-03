@@ -11,13 +11,16 @@ class Replica:
     def connection_string(self):
         return f'host={self.hostname} port={self.port} dbname={self.dbname} user={self.user}'
     
-    def drop_all_indexes(self, tables):
+    def drop_all_indexes(self, tables, mode: str):
         try:
             with psycopg.connect(self.connection_string()) as conn:
                 with conn.cursor() as cur:
                     for table in tables:
-                        # https://stackoverflow.com/questions/34010401/how-can-i-drop-all-indexes-of-a-table-in-postgres
-                        cur.execute(QUERY_TEMPLATE % table)
+                        if mode == 'cost':
+                            cur.execute('SELECT hypopg_reset();')
+                        else:
+                            # https://stackoverflow.com/questions/34010401/how-can-i-drop-all-indexes-of-a-table-in-postgres
+                            cur.execute(QUERY_TEMPLATE % table)
         except Exception as e:
             print(f'error while trying to drop indexes in replica {self.id}!')
             print(e)

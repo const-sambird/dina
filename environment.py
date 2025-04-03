@@ -46,6 +46,14 @@ class IndexSelectionEnv(gym.Env):
 
         self._action_mask = np.ones(shape=(self.num_replicas * self.num_candidates,), dtype=np.int8)
 
+        '''
+        The HypoPG what-if optimiser returns oids that represent the virtual indexes. We need to
+        store these oids so that we can drop them when the action passed to step() calls for them
+        to be removed. (The alternative is dropping all indexes and recreating them, which wouldn't
+        be ideal, so we will avoid that if possible).
+        '''
+        self._virtual_index_oids = np.zeros((self.num_replicas, self.num_candidates), dtype=np.uint32)
+
         self._state = np.zeros((self.num_replicas, self.num_candidates))
         
         '''
@@ -64,7 +72,8 @@ class IndexSelectionEnv(gym.Env):
         '''
         self.action_space = gym.spaces.Discrete(self.num_candidates * self.num_replicas)
 
-        self._drop_all_indexes()
+        self._drop_all_indexes('cost')
+        self._drop_all_indexes('exe')
         self._compute_baseline()
     
     def _get_obs(self):
@@ -88,12 +97,13 @@ class IndexSelectionEnv(gym.Env):
         self.spaces_used = [0 for i in range(self.num_replicas)]
         self.replica_cache = [0 for i in range(self.num_replicas)]
         self._action_mask = np.ones((self.num_replicas * self.num_candidates,), dtype=np.int8)
+        self._virtual_index_oids = np.zeros((self.num_replicas, self.num_candidates), dtype=np.uint32)
         observation = self._get_obs()
         info = self._get_info()
 
         self.profiler.count = 0
 
-        self._drop_all_indexes()
+        self._drop_all_indexes(self.mode)
 
         return observation, info
     
@@ -130,7 +140,7 @@ class IndexSelectionEnv(gym.Env):
             if self._state[replica_to_update][candidate_to_toggle] != 0:
                 self.profiler.time_out()
                 return self._step_early_continuation(reward=-500)
-            print(f'adding {candidate_to_toggle} on {replica_to_update}')
+            print(f'adding {self.candidates[candidate_to_toggle]} on replica {replica_to_update}')
             required_space = self._get_candidate_size(self.candidates[candidate_to_toggle])
             available_space = self.space_budget - self.spaces_used[replica_to_update]
             #if required_space > available_space:
@@ -141,7 +151,7 @@ class IndexSelectionEnv(gym.Env):
             self.profiler.time_in('step.construct_added_index')
             self._state[replica_to_update][candidate_to_toggle] = 1
             self.spaces_used[replica_to_update] += required_space
-            self._construct_index(candidate_to_toggle, self.replicas[replica_to_update])
+            self._construct_index(candidate_to_toggle, replica_to_update)
 
             if self.space_budget < self.spaces_used[replica_to_update]:
                 self._update_mask(replica_to_update)
@@ -150,14 +160,14 @@ class IndexSelectionEnv(gym.Env):
             if self._state[replica_to_update][candidate_to_toggle] != 1:
                 self.profiler.time_out()
                 return self._step_early_continuation(reward=-500)
-            print(f'removing {candidate_to_toggle} on {replica_to_update}')
+            print(f'removing {self.candidates[candidate_to_toggle]} on replica {replica_to_update}')
             required_space = self._get_candidate_size(self.candidates[candidate_to_toggle])
             self._state[replica_to_update][candidate_to_toggle] = 0
             self.spaces_used[replica_to_update] -= required_space
 
             self.profiler.time_out()
             self.profiler.time_in('step.drop_index')
-            self._drop_index(candidate_to_toggle, self.replicas[replica_to_update])
+            self._drop_index(candidate_to_toggle, replica_to_update)
 
         self.profiler.time_out()
         self.profiler.time_in('step.reward')
@@ -227,10 +237,19 @@ class IndexSelectionEnv(gym.Env):
                     # all of the columns in the candidate should be in the same table
                     # so we can pick the first one and find which table it's in
                     table = self.cols_to_table[candidate[0]]
-                    cur.execute('CREATE INDEX candidate_index ON %s (%s);' % (table, ', '.join(candidate)))
-                    cur.execute("SELECT pg_table_size('candidate_index');")
-                    computed_size = cur.fetchone()[0]
-                    cur.execute('DROP INDEX candidate_index;')
+                    creation_string = 'CREATE INDEX candidate_index ON %s (%s);' % (table, ', '.join(candidate))
+                    if self.mode == 'exe':
+                        cur.execute(creation_string)
+                        cur.execute("SELECT pg_table_size('candidate_index');")
+                        computed_size = cur.fetchone()[0]
+                        cur.execute('DROP INDEX candidate_index;')
+                    else:
+                        cur.execute('SELECT indexrelid FROM hypopg_create_index($$%s$$);' % creation_string)
+                        virtual_oid = cur.fetchone()[0]
+                        cur.execute('SELECT hypopg_relation_size(%s) FROM hypopg_list_indexes;' % virtual_oid)
+                        computed_size = cur.fetchone()[0]
+                        cur.execute('SELECT hypopg_drop_index(%s);' % virtual_oid)
+
         except Exception as err:
             print('got an exception in the database connection')
             print(err)
@@ -325,40 +344,56 @@ class IndexSelectionEnv(gym.Env):
             print(err)
             return 0
         
-    def _construct_index(self, candidate_index: int, replica: Replica):
+    def _construct_index(self, candidate_index: int, replica_index: int):
         '''
         Constructs one index candidate on the given replica.
         Throws if the index candidate already exists (this should not happen!)
         '''
+        replica = self.replicas[replica_index]
         try:
             with psycopg.connect(replica.connection_string()) as conn:
                 with conn.cursor() as cur:
                     candidate = self.candidates[candidate_index]
                     table = self.cols_to_table[candidate[0]]
-                    cur.execute('CREATE INDEX candidate_index_%d ON %s (%s);' % (candidate_index, table, ', '.join(candidate)))
+                    creation_string = 'CREATE INDEX candidate_index_%d ON %s (%s);' % (candidate_index, table, ', '.join(candidate))
+                    if self.mode == 'cost':
+                        cur.execute('SELECT indexrelid FROM hypopg_create_index($$%s$$);' % creation_string)
+                        self._virtual_index_oids[replica_index][candidate_index] = cur.fetchone()[0]
+                    else:
+                        cur.execute(creation_string)
         except Exception as err:
             print(f'got an exception in the database connection while constructing index {candidate_index} on replica {replica.id}')
             print(err)
     
-    def _drop_index(self, candidate_index: int, replica: Replica):
+    def _drop_index(self, candidate_index: int, replica_index: Replica):
         '''
         Drops one index candidate from the given replica.
         '''
+        replica = self.replicas[replica_index]
         try:
             with psycopg.connect(replica.connection_string()) as conn:
                 with conn.cursor() as cur:
-                    cur.execute('DROP INDEX candidate_index_%d;' % candidate_index)
+                    if self.mode == 'cost':
+                        virtual_oid = self._virtual_index_oids[replica_index][candidate_index]
+                        if virtual_oid == 0:
+                            print('********* missing oid for virtual index %d on replica %d !!' % (candidate_index, replica_index))
+                        cur.execute('SELECT hypopg_drop_index(%s);' % self._virtual_index_oids[replica_index][candidate_index])
+                    else:
+                        cur.execute('DROP INDEX candidate_index_%d;' % candidate_index)
         except Exception as err:
             print(f'got an exception in the database connection while dropping index {candidate_index} on replica {replica.id}')
             print(err)
     
-    def _drop_all_indexes(self):
+    def _drop_all_indexes(self, mode: str = 'cost'):
         '''
         Drop every index we've constructed.
         Necessary to reset the environment state.
+
+        If the mode is 'cost' (cost estimation variant), drop the virtual indexes.
+        If the mode is 'exe' (execution engine variant), drop the real indexes.
         '''
         for replica in  self.replicas:
-            replica.drop_all_indexes(self.tables)
+            replica.drop_all_indexes(self.tables, mode)
     
     def _compute_baseline(self):
         benchmark_fn = None
@@ -376,24 +411,6 @@ class IndexSelectionEnv(gym.Env):
 
     def _compute_space(self, candidates):
         return sum([self.spaces_used[x] for x in candidates])
-    
-    def _drop_candidates_to_free(self, required_space, replica, target_candidate_idx):
-        # there's definitely a better way to do this
-        # fun fact this is the subset sum problem !
-        space_freed = 0
-        dropped = []
-        can_be_dropped = [i for i, e in enumerate(self._state[replica]) if e != 0]
-
-        while space_freed < required_space:
-            idx_to_drop = choice(can_be_dropped)
-            space_freed += self.candidate_sizes[self.candidates[idx_to_drop]]
-            dropped.append(idx_to_drop)
-            can_be_dropped.remove(idx_to_drop)
-        
-        for idx in dropped:
-            self._state[replica][idx] = 0
-        
-        self.spaces_used[replica] -= space_freed
 
     def _update_mask(self, replica: int):
         '''
