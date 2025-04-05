@@ -30,7 +30,7 @@ class Router:
                             table = config[0]
                             columns = config[1]
                             indexes_required += 1
-                            print(f'creating index {indexes_required} : {table} ({', '.join(columns)})')
+                            print(f'creating index {indexes_required} : {table}')
                             creation_string = 'CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns))
                             cur.execute('SELECT indexrelid FROM hypopg_create_index($$%s$$);' % creation_string)
                         
@@ -60,7 +60,7 @@ class Router:
                             table = config[0]
                             columns = config[1]
                             indexes_required += 1
-                            print(f'creating index {indexes_required} : {table} ({', '.join(columns)})')
+                            print(f'creating index {indexes_required} : {table}')
                             cur.execute('CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns)))
                         
                         for idx, query in enumerate(self.queries):
