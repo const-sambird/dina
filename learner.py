@@ -81,12 +81,12 @@ def plot_durations(show_result=False):
         plt.title('Training...')
     plt.xlabel('Episode')
     plt.ylabel('Duration')
-    #plt.plot(durations_t.numpy())
+    plt.plot(durations_t.numpy())
     # Take 100 episode averages and plot them too
     if len(durations_t) >= 100:
         means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
         means = torch.cat((torch.zeros(99), means))
-        #plt.plot(means.numpy())
+        plt.plot(means.numpy())
 
     plt.pause(0.001)  # pause a bit so that plots are updated
 
@@ -196,6 +196,7 @@ def create_arguments():
     parser.add_argument('-e', '--num-epochs', type=int, default=100, help='number of learning episodes')
     parser.add_argument('-w', '--max-index-width', type=int, help='maximum number of columns that may form an index')
     parser.add_argument('-m', '--benchmark-mode', type=str, choices=['cost', 'exe'], default='cost', help='benchmark execution mode -- \'cost\' for the cost estimator, \'exe\' for actual execution times')
+    parser.add_argument('-r', '--run_benchmarks', action='store_true', help='run the TPC-H power and throughput benchmarks')
 
     # these ones can probably be left to the defaults
     parser.add_argument('--batch-size', type=int, default=32, help='the batch size to feed into the neural network')
@@ -218,6 +219,7 @@ if __name__ == '__main__':
     HYPERPARAMETERS
     '''
     EXE_MODE = args.benchmark_mode
+    RUN_BENCHMARKS = args.run_benchmarks
 
     BATCH_SIZE = args.batch_size
     DISCOUNT_RATE = args.discount_rate
@@ -291,7 +293,7 @@ if __name__ == '__main__':
     print('Complete')
     plot_durations(show_result=True)
     plt.ioff()
-    #plt.show()
+    plt.show()
 
     print('Generating routeing table...')
     # router expects the format [ { table: [cols,] } ]
@@ -309,7 +311,7 @@ if __name__ == '__main__':
 
         parsed_config.append(indexes)
 
-    router = Router(p.templates, parsed_config, p.tables, replicas, profiler)
+    router = Router(p.templates, parsed_config, p.tables, replicas, profiler, EXE_MODE)
     router.evaluate()
 
     print('LEARNED CONFIGURATION')
@@ -327,12 +329,13 @@ if __name__ == '__main__':
     print(profiler.times())
     print('TOTAL EXECUTION TIME: %.2fs' % (toc - tic))
 
-    # TPC-H benchmark
-    from tpcbench import query
+    if RUN_BENCHMARKS:
+        # TPC-H benchmark
+        from tpcbench import query
 
-    query.main(
-        replicas,
-        router.routes,
-        parsed_config,
-        scale=args.scale_factor
-    )
+        query.main(
+            replicas,
+            router.routes,
+            parsed_config,
+            scale=args.scale_factor
+        )
