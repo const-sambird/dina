@@ -1,15 +1,16 @@
 import psycopg
 
 class Replica:
-    def __init__(self, id, hostname, port = 5432, dbname = 'tpchdb', user = 'sam'):
+    def __init__(self, id, hostname, port = 5432, dbname = 'tpchdb', user = 'sam', password = ''):
         self.id = id
         self.hostname = hostname
         self.port = port
         self.dbname = dbname
         self.user = user
+        self.password = password
 
     def connection_string(self):
-        return f'host={self.hostname} port={self.port} dbname={self.dbname} user={self.user}'
+        return f'host={self.hostname} port={self.port} dbname={self.dbname} user={self.user} password={self.password}'
     
     def drop_all_indexes(self, tables, mode: str):
         try:

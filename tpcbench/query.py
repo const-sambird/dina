@@ -607,7 +607,7 @@ def main(replicas: list[Replica], routes: list[int], index_config,
     num_streams = scale_to_num_streams(scale)
 
     conns = [
-        pgdb.PGDB(replica.hostname, replica.port, replica.dbname, replica.user, '')
+        pgdb.PGDB(replica.hostname, replica.port, replica.dbname, replica.user, replica.password)
         for replica in replicas
     ]
     query_root = os.path.join('.', 'tpcbench', 'query_root')

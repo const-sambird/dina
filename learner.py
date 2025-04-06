@@ -35,7 +35,8 @@ def get_replicas(path = './replicas.csv') -> list[Replica]:
                     hostname=fields[1],
                     port=fields[2],
                     dbname=fields[3],
-                    user=fields[4]
+                    user=fields[4],
+                    password=fields[5]
                 )
             )
     return replicas
