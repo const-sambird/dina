@@ -157,4 +157,4 @@ class QuantumDQN(nn.Module):
         x = self.flatten(x)
         x = self.state_encoder(x)
         x = self.qnn(x)
-        return torch.narrow(x, 1, 0, self.n_actions - 1)
+        return torch.narrow(x, 1, 0, self.n_actions)
