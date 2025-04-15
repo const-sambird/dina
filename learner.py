@@ -165,8 +165,11 @@ def learn():
             # Move to the next state
             state = next_state
 
+            tic_opt = time.time()
             # Perform one step of the optimization (on the policy network)
             optimize_model()
+            toc_opt = time.time()
+            print(f'optimisation this step took {toc_opt - tic_opt} seconds')
 
             # Soft update of the target network's weights
             # θ′ ← τ θ + (1 −τ )θ′

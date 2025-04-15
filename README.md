@@ -1,6 +1,6 @@
 # qDINA
 
-The Quantum Divergent Index Advisor (qDINA) is a quantum-enabled version of [DINA](https://github.com/const-sambird/dina), a divergent design index tuning advsior. qDINA is a research project to investigate methods of quantum acceleration for the index selection problem on replicated databases.
+The Quantum Divergent Index Advisor (qDINA) is a quantum-enabled version of [DINA](https://github.com/const-sambird/dina/tree/classical), a divergent design index tuning advsior. qDINA is a research project to investigate methods of quantum acceleration for the index selection problem on replicated databases.
 
 More information is available:
 

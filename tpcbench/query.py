@@ -270,7 +270,7 @@ def run_throughput_inner(query_root, data_dir, generated_query_dir,
     :return: none, uses exit(1) to abort on errors
     """
     conns = [
-        pgdb.PGDB(replica.hostname, replica.port, replica.dbname, replica.user, '')
+        pgdb.PGDB(replica.hostname, replica.port, replica.dbname, replica.user, replica.password)
         for replica in replicas
     ]
     try:

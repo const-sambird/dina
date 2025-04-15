@@ -34,9 +34,14 @@ class StateEncoder(nn.Module):
     def _encode_state(self, batch):
         batch_size = len(batch)
         output = torch.zeros((batch_size, self.num_qubits), device=self.torch_device)
+        # each 2-tensor in the batch is a separate input, so we have to iterate over them to encode 
         for i_t, tensor in enumerate(batch):
+            # group by number of qubits. for example, if we have 4 qubits and want to encode
+            # [1 0 1 0 1 0 1 0], this returns
+            # ([1 0], [1 0], [1 0], [1 0])
             chunks = torch.tensor_split(tensor, self.num_qubits)
             for i_c, chunk in enumerate(chunks):
+                # perform the encoding as described in __init__
                 output[i_t][i_c] = sum([(2**i)*n for i, n in enumerate(chunk)])
         return output
     
