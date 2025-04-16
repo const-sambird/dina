@@ -23,6 +23,8 @@ from profiling import Profiler
 from database import Replica
 from router import Router
 
+import wandb
+
 def get_replicas(path = './replicas.csv') -> list[Replica]:
     replicas = []
     with open(path, 'r') as infile:
@@ -142,6 +144,7 @@ def learn():
     num_episodes = args.num_epochs
 
     for i_episode in range(num_episodes):
+        opt_times = []
         print('*** this is episode', i_episode)
         return_state = None
         # Initialize the environment and get its state
@@ -170,6 +173,7 @@ def learn():
             optimize_model()
             toc_opt = time.time()
             print(f'optimisation this step took {toc_opt - tic_opt} seconds')
+            opt_times.append(toc_opt - tic_opt)
 
             # Soft update of the target network's weights
             # θ′ ← τ θ + (1 −τ )θ′
@@ -181,6 +185,7 @@ def learn():
 
             if done:
                 episode_durations.append(t + 1)
+                wandb.log({'episodes': t + 1, 'mean_opt_time': sum(opt_times)/len(opt_times)})
                 plot_durations()
                 break
 
@@ -218,6 +223,7 @@ def create_arguments():
     return parser.parse_args()
 
 if __name__ == '__main__':
+    wandb.login()
     args = create_arguments()
     '''
     HYPERPARAMETERS
@@ -249,6 +255,32 @@ if __name__ == '__main__':
         "cuda" if torch.cuda.is_available() else
         "mps" if torch.backends.mps.is_available() else
         "cpu"
+    )
+
+    run = wandb.init(
+        project='qdina',
+        name=f'{'cl' if not IS_QUANTUM else 'q' + NUM_QUBITS}-w{args.max_index_width}-b{BATCH_SIZE}',
+        config={
+            'EXE_MODE': EXE_MODE,
+            'RUN_BENCHMARKS': RUN_BENCHMARKS,
+            'BATCH_SIZE': BATCH_SIZE,
+            'SPACE_BUDGET': SPACE_BUDGET,
+            'IS_QUANTUM': IS_QUANTUM,
+            'NUM_QUBITS': NUM_QUBITS,
+            'MAX_INDEX_WIDTH': args.max_index_width,
+            'NUM_EPOCHS': args.num_epochs,
+            'SCALE_FACTOR': args.scale_factor,
+            'DISCOUNT_RATE': DISCOUNT_RATE,
+            'EPS_START': EPS_START,
+            'EPS_END': EPS_END,
+            'EPS_DECAY': EPS_DECAY,
+            'UPDATE_RATE': UPDATE_RATE,
+            'LEARNING_RATE': LEARNING_RATE,
+            'REPLAY_BUFFER_SIZE': REPLAY_BUFFER_SIZE,
+            'NN_HIDDEN_LAYERS': NN_HIDDEN_LAYERS,
+            'ALPHA': ALPHA,
+            'BETA': BETA
+        }
     )
 
     if torch.cuda.is_available():
@@ -319,27 +351,41 @@ if __name__ == '__main__':
     router.evaluate()
 
     print('LEARNED CONFIGURATION')
+    learned_config = []
     for idx, replica in enumerate(final_state):
+        this_config = []
         print('--- replica', idx)
         print('space:', config[1]['spaces_used'][idx], '/', SPACE_BUDGET)
         print('indexes:')
         print(replica)
         for can_idx, include in enumerate(replica):
             if include == 1:
+                this_config.append(p.candidates[can_idx])
                 print('-', p.candidates[can_idx])
+        learned_config.append(this_config)
     print('ROUTEING TABLE')
     print(router.routes)
     print('PROFILING RESULTS')
     print(profiler.times())
     print('TOTAL EXECUTION TIME: %.2fs' % (toc - tic))
 
+    wandb.summary['learned_config'] = learned_config
+    wandb.summary['spaces_used'] = config[1]['spaces_used']
+    wandb.summary['routing_table'] = router.routes
+    wandb.summary['profiling_results'] = profiler.times()
+    wandb.summary['recommendation_time'] = toc - tic
+
     if RUN_BENCHMARKS:
         # TPC-H benchmark
         from tpcbench import query
 
-        query.main(
+        qphh = query.main(
             replicas,
             router.routes,
             parsed_config,
             scale=args.scale_factor
         )
+
+        wandb.summary['qphh_size'] = qphh
+    
+    wandb.finish()

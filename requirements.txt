@@ -10,3 +10,5 @@ qiskit-machine-learning[torch]
 
 psycopg2-binary
 mock
+
+wandb

@@ -552,6 +552,7 @@ def calc_metrics(results_dir, run_timestamp, scale_factor, num_streams):
     #
     res.printMetrics("Metrics")
     res.saveMetrics(results_dir, run_timestamp, "metrics")
+    return qphh_size
 
 UPDATE_DIR = "update"
 DELETE_DIR = "delete"
@@ -636,9 +637,10 @@ def main(replicas: list[Replica], routes: list[int], index_config,
         print("running throughput tests failed")
         exit(1)
     print("done performance tests")
-    calc_metrics(RESULTS_DIR, run_timestamp, scale, num_streams)
+    size = calc_metrics(RESULTS_DIR, run_timestamp, scale, num_streams)
     for conn in conns:
         conn.close()
+    return size
 
 def scale_to_num_streams(scale):
     """Converts scale factor to number of streams as defined in
