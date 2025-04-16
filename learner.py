@@ -259,7 +259,7 @@ if __name__ == '__main__':
 
     run = wandb.init(
         project='qdina',
-        name=f'{'cl' if not IS_QUANTUM else 'q' + NUM_QUBITS}-w{args.max_index_width}-b{BATCH_SIZE}',
+        name=f'{'cl' if not IS_QUANTUM else 'q' + str(NUM_QUBITS)}-w{args.max_index_width}-b{BATCH_SIZE}',
         config={
             'EXE_MODE': EXE_MODE,
             'RUN_BENCHMARKS': RUN_BENCHMARKS,
