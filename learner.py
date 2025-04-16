@@ -24,6 +24,7 @@ from database import Replica
 from router import Router
 
 import wandb
+import os
 
 def get_replicas(path = './replicas.csv') -> list[Replica]:
     replicas = []
@@ -194,6 +195,12 @@ def learn():
 
     return state, info
 
+def preconfigure_wandb():
+    with open("wandb.env") as f:
+        for line in f:
+            key, val = line.strip().split("=", 1)
+            os.environ[key] = val
+
 def create_arguments():
     parser = argparse.ArgumentParser()
 
@@ -223,6 +230,7 @@ def create_arguments():
     return parser.parse_args()
 
 if __name__ == '__main__':
+    preconfigure_wandb()
     wandb.login()
     args = create_arguments()
     '''

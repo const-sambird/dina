@@ -11,3 +11,4 @@ tpcbench/query_root
 tpcbench/sf10
 tpcbench/data.tar.gz
 wandb/
+wandb.env
