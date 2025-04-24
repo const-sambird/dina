@@ -233,6 +233,8 @@ def create_arguments():
 if __name__ == '__main__':
     preconfigure_wandb()
     wandb.login()
+    wandb.define_metric('episodes', summary='mean')
+    wandb.define_metric('mean_opt_time', summary='mean')
     args = create_arguments()
     '''
     HYPERPARAMETERS
@@ -289,7 +291,8 @@ if __name__ == '__main__':
             'REPLAY_BUFFER_SIZE': REPLAY_BUFFER_SIZE,
             'NN_HIDDEN_LAYERS': NN_HIDDEN_LAYERS,
             'ALPHA': ALPHA,
-            'BETA': BETA
+            'BETA': BETA,
+            'QNN_OUTPUT': QNN_OUTPUT
         }
     )
 
