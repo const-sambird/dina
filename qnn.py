@@ -8,6 +8,7 @@ from qiskit_machine_learning.connectors import TorchConnector
 
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 from encoding import AngleEncoder, AmplitudeEncoder, StateEncoder, ActionDecoder
 
@@ -141,9 +142,10 @@ class AmplitudeEncodedQNN(nn.Module):
         return self.qnn(x)
 
 class QuantumDQN(nn.Module):
-    def __init__(self, n_inputs, n_qubits, n_actions, param_layers = 3, encoding = 'angle', torch_device='cpu'):
+    def __init__(self, n_inputs, n_qubits, n_actions, param_layers = 3, encoding = 'angle', qnn_output='trunc', torch_device='cpu'):
         assert encoding == 'angle' or encoding == 'amplitude', 'must specify one of amplitude or angle encoding!'
         assert n_actions <= 2**n_qubits, 'the given number of qubits can\'t encode the action space!'
+        assert qnn_output == 'trunc' or qnn_output == 'layer', 'must specify how to rectify the output dimension!'
         super(QuantumDQN, self).__init__()
         if encoding == 'angle':
             self.qnn = AngleEncodedQNN(n_inputs, n_qubits, param_layers, n_actions)
@@ -151,10 +153,15 @@ class QuantumDQN(nn.Module):
             self.qnn = AmplitudeEncodedQNN(n_inputs, n_qubits, param_layers, n_actions)
         self.flatten = nn.Flatten()
         self.state_encoder = StateEncoder(n_inputs, n_qubits, torch_device)
+        self.output_layer = nn.Linear(2**n_qubits, n_actions)
         self.n_actions = n_actions
+        self.qnn_output = qnn_output
     
     def forward(self, x):
         x = self.flatten(x)
         x = self.state_encoder(x)
         x = self.qnn(x)
-        return torch.narrow(x, 1, 0, self.n_actions)
+        if self.qnn_output == 'trunc':
+            return torch.narrow(x, 1, 0, self.n_actions)
+        else:
+            return self.output_layer(x)

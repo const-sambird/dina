@@ -44,10 +44,10 @@ def get_replicas(path = './replicas.csv') -> list[Replica]:
             )
     return replicas
 
-def create_nets(n_qubits, quantum, n_observations, n_actions, device) -> tuple[DQN | QuantumDQN]:
+def create_nets(n_qubits, quantum, n_observations, n_actions, qnn_output, device) -> tuple[DQN | QuantumDQN]:
     if quantum:
-        policy_net = QuantumDQN(n_observations, n_qubits, n_actions, torch_device=device).to(device)
-        target_net = QuantumDQN(n_observations, n_qubits, n_actions, torch_device=device).to(device)
+        policy_net = QuantumDQN(n_observations, n_qubits, n_actions, qnn_output=qnn_output, torch_device=device).to(device)
+        target_net = QuantumDQN(n_observations, n_qubits, n_actions, qnn_output=qnn_output, torch_device=device).to(device)
     else:
         policy_net = DQN(n_observations, n_actions, NN_HIDDEN_LAYERS).to(device)
         target_net = DQN(n_observations, n_actions, NN_HIDDEN_LAYERS).to(device)
@@ -226,6 +226,7 @@ def create_arguments():
     parser.add_argument('--hidden-layers', type=int, nargs='+', default=[64, 64, 64], help='the hidden layers in the neural network, number of neurons (classical only. ignored for quantum)')
     parser.add_argument('--workload-factor', type=float, default=0.5, help='the weight that the workload time should take in the reward function')
     parser.add_argument('--skew-factor', type=float, default=0.5, help='the weight that the workload skew should take in the reward function')
+    parser.add_argument('--qnn-output', type=str, choices=['trunc', 'layer'], help='how should we map the output probabilities from the QNN to actions? [trunc]ate them to fit or add a classical [layer] (quantum only)')
 
     return parser.parse_args()
 
@@ -248,6 +249,7 @@ if __name__ == '__main__':
     LEARNING_RATE = args.learning_rate
     REPLAY_BUFFER_SIZE = args.replay_buffer
     NN_HIDDEN_LAYERS = args.hidden_layers
+    QNN_OUTPUT = args.qnn_output
 
     ALPHA = args.workload_factor
     BETA = args.skew_factor
@@ -325,7 +327,7 @@ if __name__ == '__main__':
     else:
         print(f'{n_actions} actions')
 
-    policy_net, target_net = create_nets(NUM_QUBITS, IS_QUANTUM, n_observations, n_actions, device)
+    policy_net, target_net = create_nets(NUM_QUBITS, IS_QUANTUM, n_observations, n_actions, QNN_OUTPUT, device)
     target_net.load_state_dict(policy_net.state_dict())
 
     optimizer = optim.AdamW(policy_net.parameters(), lr=LEARNING_RATE, amsgrad=True)
