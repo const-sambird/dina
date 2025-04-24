@@ -233,8 +233,6 @@ def create_arguments():
 if __name__ == '__main__':
     preconfigure_wandb()
     wandb.login()
-    wandb.define_metric('episodes', summary='mean')
-    wandb.define_metric('mean_opt_time', summary='mean')
     args = create_arguments()
     '''
     HYPERPARAMETERS
@@ -295,6 +293,9 @@ if __name__ == '__main__':
             'QNN_OUTPUT': QNN_OUTPUT
         }
     )
+
+    wandb.define_metric('episodes', summary='mean')
+    wandb.define_metric('mean_opt_time', summary='mean')
 
     if torch.cuda.is_available():
         print('found CUDA!')
