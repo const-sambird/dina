@@ -44,10 +44,10 @@ def get_replicas(path = './replicas.csv') -> list[Replica]:
             )
     return replicas
 
-def create_nets(n_qubits, quantum, n_observations, n_actions, qnn_output, device) -> tuple[DQN | QuantumDQN]:
+def create_nets(n_qubits, quantum, n_observations, n_actions, qnn_output, num_shots, device) -> tuple[DQN | QuantumDQN]:
     if quantum:
-        policy_net = QuantumDQN(n_observations, n_qubits, n_actions, qnn_output=qnn_output, torch_device=device).to(device)
-        target_net = QuantumDQN(n_observations, n_qubits, n_actions, qnn_output=qnn_output, torch_device=device).to(device)
+        policy_net = QuantumDQN(n_observations, n_qubits, n_actions, qnn_output=qnn_output, n_shots=num_shots, torch_device=device).to(device)
+        target_net = QuantumDQN(n_observations, n_qubits, n_actions, qnn_output=qnn_output, n_shots=num_shots, torch_device=device).to(device)
     else:
         policy_net = DQN(n_observations, n_actions, NN_HIDDEN_LAYERS).to(device)
         target_net = DQN(n_observations, n_actions, NN_HIDDEN_LAYERS).to(device)
@@ -212,7 +212,8 @@ def create_arguments():
     parser.add_argument('-e', '--num-epochs', type=int, default=100, help='number of learning episodes')
     parser.add_argument('-w', '--max-index-width', type=int, help='maximum number of columns that may form an index')
     parser.add_argument('-m', '--benchmark-mode', type=str, choices=['cost', 'exe'], default='cost', help='benchmark execution mode -- \'cost\' for the cost estimator, \'exe\' for actual execution times')
-    parser.add_argument('-r', '--run_benchmarks', action='store_true', help='run the TPC-H power and throughput benchmarks')
+    parser.add_argument('-r', '--run-benchmarks', action='store_true', help='run the TPC-H power and throughput benchmarks')
+    parser.add_argument('-o', '--num-shots', type=int, default=1024, help='number of samples to take from the quantum neural network')
 
     # these ones can probably be left to the defaults
     parser.add_argument('--batch-size', type=int, default=32, help='the batch size to feed into the neural network')
@@ -257,6 +258,7 @@ if __name__ == '__main__':
 
     NUM_QUBITS = args.num_qubits
     IS_QUANTUM = args.quantum
+    NUM_SHOTS = args.num_shots
 
     '''
     ENVIRONMENT
@@ -267,9 +269,19 @@ if __name__ == '__main__':
         "cpu"
     )
 
+    if torch.cuda.is_available():
+        print('found CUDA!')
+    elif torch.backends.mps.is_available():
+        print('found MPS!')
+    else:
+        print('****** torch did not find CUDA/MPS! *******')
+
+    profiler = Profiler()
+    replicas = get_replicas()
+
     run = wandb.init(
         project='qdina',
-        name=f'{'cl' if not IS_QUANTUM else 'q' + str(NUM_QUBITS)}-w{args.max_index_width}-b{BATCH_SIZE}',
+        name=f'{'cl' if not IS_QUANTUM else 'q' + str(NUM_QUBITS)}-n{len(replicas)}-s{NUM_SHOTS}',
         config={
             'EXE_MODE': EXE_MODE,
             'RUN_BENCHMARKS': RUN_BENCHMARKS,
@@ -290,23 +302,16 @@ if __name__ == '__main__':
             'NN_HIDDEN_LAYERS': NN_HIDDEN_LAYERS,
             'ALPHA': ALPHA,
             'BETA': BETA,
-            'QNN_OUTPUT': QNN_OUTPUT
+            'QNN_OUTPUT': QNN_OUTPUT,
+            'NUM_REPLICAS': len(replicas),
+            'NUM_SHOTS': NUM_SHOTS
         }
     )
 
     wandb.define_metric('episodes', summary='mean')
     wandb.define_metric('mean_opt_time', summary='mean')
 
-    if torch.cuda.is_available():
-        print('found CUDA!')
-    elif torch.backends.mps.is_available():
-        print('found MPS!')
-    else:
-        print('****** torch did not find CUDA/MPS! *******')
-
     tic = time.time()
-    profiler = Profiler()
-    replicas = get_replicas()
     p = Preprocessor(profiler, replicas[0], args.max_index_width)
     p.preprocess(SPACE_BUDGET)
 
@@ -331,7 +336,7 @@ if __name__ == '__main__':
     else:
         print(f'{n_actions} actions')
 
-    policy_net, target_net = create_nets(NUM_QUBITS, IS_QUANTUM, n_observations, n_actions, QNN_OUTPUT, device)
+    policy_net, target_net = create_nets(NUM_QUBITS, IS_QUANTUM, n_observations, n_actions, QNN_OUTPUT, NUM_SHOTS, device)
     target_net.load_state_dict(policy_net.state_dict())
 
     optimizer = optim.AdamW(policy_net.parameters(), lr=LEARNING_RATE, amsgrad=True)

@@ -92,7 +92,7 @@ def interpreter(n_actions):
 def identity(x):
     return x
 
-def build_qnn_model(n_inputs: int, n_qubits: int, param_layers: int, n_outputs: int) -> SamplerQNN:
+def build_qnn_model(n_inputs: int, n_qubits: int, param_layers: int, n_outputs: int, n_shots: int) -> SamplerQNN:
     # circuit, inputs, weights = build_angle_encoded_circuit(n_inputs, param_layers)
     circuit = QuantumCircuit(n_qubits)
     feature_map = ZZFeatureMap(n_qubits)
@@ -100,7 +100,7 @@ def build_qnn_model(n_inputs: int, n_qubits: int, param_layers: int, n_outputs: 
     circuit.compose(feature_map, inplace=True)
     circuit.compose(ansatz, inplace=True)
     circuit.draw(output='mpl')
-    sampler = Sampler()
+    sampler = Sampler(default_shots=n_shots)
     qnn = SamplerQNN(
         circuit=circuit,
         input_params=feature_map.parameters,
@@ -114,43 +114,43 @@ def build_qnn_model(n_inputs: int, n_qubits: int, param_layers: int, n_outputs: 
     return qnn
 
 class QNN(nn.Module):
-    def __init__(self, n_inputs, n_qubits, param_layers, n_outputs):
+    def __init__(self, n_inputs, n_qubits, param_layers, n_outputs, n_shots):
         super(QNN, self).__init__()
-        self.qnn = TorchConnector(build_qnn_model(n_inputs, n_qubits, param_layers, n_outputs))
+        self.qnn = TorchConnector(build_qnn_model(n_inputs, n_qubits, param_layers, n_outputs, n_shots))
     
     def forward(self, x):
         return self.qnn(x)
     
 class AngleEncodedQNN(nn.Module):
-    def __init__(self, n_inputs, n_qubits, param_layers, n_outputs):
+    def __init__(self, n_inputs, n_qubits, param_layers, n_outputs, n_shots):
         super(AngleEncodedQNN, self).__init__()
         self.encoder = AngleEncoder()
-        self.qnn = QNN(n_inputs, n_qubits, param_layers, n_outputs)
+        self.qnn = QNN(n_inputs, n_qubits, param_layers, n_outputs, n_shots)
 
     def forward(self, x):
         #x = self.encoder(x)
         return self.qnn(x)
     
 class AmplitudeEncodedQNN(nn.Module):
-    def __init__(self, n_inputs, n_qubits, param_layers, n_outputs):
+    def __init__(self, n_inputs, n_qubits, param_layers, n_outputs, n_shots):
         super(AmplitudeEncodedQNN, self).__init__()
         self.encoder = AmplitudeEncoder()
-        self.qnn = QNN(n_inputs, n_qubits, param_layers, n_outputs)
+        self.qnn = QNN(n_inputs, n_qubits, param_layers, n_outputs, n_shots)
 
     def forward(self, x):
         x = self.encoder(x)
         return self.qnn(x)
 
 class QuantumDQN(nn.Module):
-    def __init__(self, n_inputs, n_qubits, n_actions, param_layers = 3, encoding = 'angle', qnn_output='trunc', torch_device='cpu'):
+    def __init__(self, n_inputs, n_qubits, n_actions, param_layers = 3, encoding = 'angle', qnn_output='trunc', n_shots=1024, torch_device='cpu'):
         assert encoding == 'angle' or encoding == 'amplitude', 'must specify one of amplitude or angle encoding!'
         assert n_actions <= 2**n_qubits, 'the given number of qubits can\'t encode the action space!'
         assert qnn_output == 'trunc' or qnn_output == 'layer', 'must specify how to rectify the output dimension!'
         super(QuantumDQN, self).__init__()
         if encoding == 'angle':
-            self.qnn = AngleEncodedQNN(n_inputs, n_qubits, param_layers, n_actions)
+            self.qnn = AngleEncodedQNN(n_inputs, n_qubits, param_layers, n_actions, n_shots)
         else:
-            self.qnn = AmplitudeEncodedQNN(n_inputs, n_qubits, param_layers, n_actions)
+            self.qnn = AmplitudeEncodedQNN(n_inputs, n_qubits, param_layers, n_actions, n_shots)
         self.flatten = nn.Flatten()
         self.state_encoder = StateEncoder(n_inputs, n_qubits, torch_device)
         self.output_layer = nn.Linear(2**n_qubits, n_actions)
