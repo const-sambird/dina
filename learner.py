@@ -65,12 +65,14 @@ def select_action(state, mask):
         math.exp(-1. * steps_done / EPS_DECAY)
     steps_done += 1
     if sample > eps_threshold:
+        print(f'exploitation ({sample} > {eps_threshold})')
         with torch.no_grad():
             # t.max(1) will return the largest column value of each row.
             # second column on max result is index of where max element was
             # found, so we pick action with the larger expected reward.
             return policy_net(state).max(1).indices.view(1, 1)
     else:
+        print(f'exploration ({sample} < {eps_threshold})')
         return torch.tensor([[env.action_space.sample(mask=mask)]], device=device, dtype=torch.long)
 
 episode_durations = []
@@ -228,6 +230,7 @@ def create_arguments():
     parser.add_argument('--workload-factor', type=float, default=0.5, help='the weight that the workload time should take in the reward function')
     parser.add_argument('--skew-factor', type=float, default=0.5, help='the weight that the workload skew should take in the reward function')
     parser.add_argument('--qnn-output', type=str, choices=['trunc', 'layer'], help='how should we map the output probabilities from the QNN to actions? [trunc]ate them to fit or add a classical [layer] (quantum only)')
+    parser.add_argument('--seed', type=int, default=None, help='the seed for the PRNG used in exploration')
 
     return parser.parse_args()
 
@@ -251,6 +254,7 @@ if __name__ == '__main__':
     REPLAY_BUFFER_SIZE = args.replay_buffer
     NN_HIDDEN_LAYERS = args.hidden_layers
     QNN_OUTPUT = args.qnn_output
+    SEED = args.seed
 
     ALPHA = args.workload_factor
     BETA = args.skew_factor
@@ -263,6 +267,8 @@ if __name__ == '__main__':
     '''
     ENVIRONMENT
     '''
+    random.seed(SEED)
+
     device = torch.device(
         "cuda" if torch.cuda.is_available() else
         "mps" if torch.backends.mps.is_available() else
@@ -303,6 +309,7 @@ if __name__ == '__main__':
             'ALPHA': ALPHA,
             'BETA': BETA,
             'QNN_OUTPUT': QNN_OUTPUT,
+            'SEED': SEED,
             'NUM_REPLICAS': len(replicas),
             'NUM_SHOTS': NUM_SHOTS
         }
@@ -328,7 +335,7 @@ if __name__ == '__main__':
     # Get number of actions from gym action space
     n_actions = env.action_space.n
     # Get the number of state observations
-    state, info = env.reset()
+    state, info = env.reset(seed=SEED)
     n_observations = np.size(state)
 
     if IS_QUANTUM:
