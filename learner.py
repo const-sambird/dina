@@ -268,6 +268,8 @@ if __name__ == '__main__':
     ENVIRONMENT
     '''
     random.seed(SEED)
+    if SEED is not None:
+        torch.manual_seed(SEED)
 
     device = torch.device(
         "cuda" if torch.cuda.is_available() else
