@@ -335,6 +335,7 @@ if __name__ == '__main__':
     # Get number of actions from gym action space
     n_actions = env.action_space.n
     # Get the number of state observations
+    env.action_space.seed(SEED)
     state, info = env.reset(seed=SEED)
     n_observations = np.size(state)
 
