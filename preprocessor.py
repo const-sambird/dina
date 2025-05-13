@@ -87,6 +87,7 @@ class Preprocessor:
         # flatten dict of sets of tuples into a list of tuples
         self.tables = list(self.candidates.keys())
         self.candidates = list(set([x for v in self.candidates.values() for x in v]))
+        self.candidates = sorted(self.candidates)
     
     def get_candidate_indexes(self, space_budget):
         self.candidates = []
