@@ -221,7 +221,7 @@ def create_arguments():
     parser.add_argument('--batch-size', type=int, default=32, help='the batch size to feed into the neural network')
     parser.add_argument('--discount-rate', type=float, default=0.99, help='the discount rate for the reinforcement learner')
     parser.add_argument('--eps-start', type=float, default=0.9, help='the starting probability of the reinforcement learner exploration rate')
-    parser.add_argument('--eps-end', type=float, default=0.99, help='the ending probability of the reinforcement learner exploration rate')
+    parser.add_argument('--eps-end', type=float, default=0.05, help='the ending probability of the reinforcement learner exploration rate')
     parser.add_argument('--eps-decay', type=float, default=1000, help='the rate at which the exploration probability decays')
     parser.add_argument('--update-rate', type=float, default=0.005, help='the rate at which the policy nets are updated')
     parser.add_argument('--learning-rate', type=float, default=0.001, help='the rate at which the q-learner learns')
