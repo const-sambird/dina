@@ -232,27 +232,29 @@ class IndexSelectionEnv(gym.Env):
         computed_size = 0
 
         try:
-            with psycopg.connect(self.replicas[0].connection_string()) as conn:
-                with conn.cursor() as cur:
-                    # all of the columns in the candidate should be in the same table
-                    # so we can pick the first one and find which table it's in
-                    table = self.cols_to_table[candidate[0]]
-                    creation_string = 'CREATE INDEX candidate_index ON %s (%s);' % (table, ', '.join(candidate))
-                    if self.mode == 'exe':
-                        cur.execute(creation_string)
-                        cur.execute("SELECT pg_table_size('candidate_index');")
-                        computed_size = cur.fetchone()[0]
-                        cur.execute('DROP INDEX candidate_index;')
-                    else:
-                        cur.execute('SELECT indexrelid FROM hypopg_create_index($$%s$$);' % creation_string)
-                        virtual_oid = cur.fetchone()[0]
-                        cur.execute('SELECT hypopg_relation_size(%s) FROM hypopg_list_indexes;' % virtual_oid)
-                        computed_size = cur.fetchone()[0]
-                        cur.execute('SELECT hypopg_drop_index(%s);' % virtual_oid)
+            conn = self.replicas[0].connection()
+            with conn.cursor() as cur:
+                # all of the columns in the candidate should be in the same table
+                # so we can pick the first one and find which table it's in
+                table = self.cols_to_table[candidate[0]]
+                creation_string = 'CREATE INDEX candidate_index ON %s (%s);' % (table, ', '.join(candidate))
+                if self.mode == 'exe':
+                    cur.execute(creation_string)
+                    cur.execute("SELECT pg_table_size('candidate_index');")
+                    computed_size = cur.fetchone()[0]
+                    cur.execute('DROP INDEX candidate_index;')
+                else:
+                    cur.execute('SELECT indexrelid FROM hypopg_create_index($$%s$$);' % creation_string)
+                    virtual_oid = cur.fetchone()[0]
+                    cur.execute('SELECT hypopg_relation_size(%s) FROM hypopg_list_indexes;' % virtual_oid)
+                    computed_size = cur.fetchone()[0]
+                    cur.execute('SELECT hypopg_drop_index(%s);' % virtual_oid)
+                conn.commit()
 
         except Exception as err:
             print('got an exception in the database connection')
             print(err)
+            conn.rollback()
 
         self.candidate_sizes[candidate] = computed_size
         return computed_size
@@ -303,19 +305,21 @@ class IndexSelectionEnv(gym.Env):
         Returns None if it is not possible to benchmark this candidate.
         '''
         try:
-            with psycopg.connect(replica.connection_string()) as conn:
-                with conn.cursor() as cur:
-                    tic = time.time()
+            conn = replica.connection()
+            with conn.cursor() as cur:
+                tic = time.time()
 
-                    for query in queries:
-                        cur.execute('%s;' % query)
+                for query in queries:
+                    cur.execute('%s;' % query)
 
-                    toc = time.time()
+                toc = time.time()
 
-                    return toc - tic
+                conn.commit()
+                return toc - tic
         except Exception as err:
             print('got an exception in the database connection')
             print(err)
+            conn.rollback()
             return 0
 
     def _benchmark_index_cost(self, queries: list[str], replica: Replica) -> float | None:
@@ -328,20 +332,22 @@ class IndexSelectionEnv(gym.Env):
         Returns None if it is not possible to benchmark this candidate.
         '''
         try:
-            with psycopg.connect(replica.connection_string()) as conn:
-                with conn.cursor() as cur:
-                    REGEX = 'cost=([0-9]+\\.[0-9]+)'
-                    cost = 0
+            conn = replica.connection()
+            with conn.cursor() as cur:
+                REGEX = 'cost=([0-9]+\\.[0-9]+)'
+                cost = 0
 
-                    for query in queries:
-                        cur.execute('EXPLAIN %s;' % query)
-                        if after_timing := re.search(REGEX, cur.fetchone()[0], re.IGNORECASE):
-                            cost += float(after_timing.group(1))
-                    
-                    return cost
+                for query in queries:
+                    cur.execute('EXPLAIN %s;' % query)
+                    if after_timing := re.search(REGEX, cur.fetchone()[0], re.IGNORECASE):
+                        cost += float(after_timing.group(1))
+                
+                conn.commit()
+                return cost
         except Exception as err:
             print('got an exception in the database connection')
             print(err)
+            conn.rollback()
             return 0
         
     def _construct_index(self, candidate_index: int, replica_index: int):
@@ -351,19 +357,21 @@ class IndexSelectionEnv(gym.Env):
         '''
         replica = self.replicas[replica_index]
         try:
-            with psycopg.connect(replica.connection_string()) as conn:
-                with conn.cursor() as cur:
-                    candidate = self.candidates[candidate_index]
-                    table = self.cols_to_table[candidate[0]]
-                    creation_string = 'CREATE INDEX candidate_index_%d ON %s (%s);' % (candidate_index, table, ', '.join(candidate))
-                    if self.mode == 'cost':
-                        cur.execute('SELECT indexrelid FROM hypopg_create_index($$%s$$);' % creation_string)
-                        self._virtual_index_oids[replica_index][candidate_index] = cur.fetchone()[0]
-                    else:
-                        cur.execute(creation_string)
+            conn = replica.connection()
+            with conn.cursor() as cur:
+                candidate = self.candidates[candidate_index]
+                table = self.cols_to_table[candidate[0]]
+                creation_string = 'CREATE INDEX candidate_index_%d ON %s (%s);' % (candidate_index, table, ', '.join(candidate))
+                if self.mode == 'cost':
+                    cur.execute('SELECT indexrelid FROM hypopg_create_index($$%s$$);' % creation_string)
+                    self._virtual_index_oids[replica_index][candidate_index] = cur.fetchone()[0]
+                else:
+                    cur.execute(creation_string)
+                conn.commit()
         except Exception as err:
             print(f'got an exception in the database connection while constructing index {candidate_index} on replica {replica.id}')
             print(err)
+            conn.rollback()
     
     def _drop_index(self, candidate_index: int, replica_index: Replica):
         '''
@@ -371,18 +379,20 @@ class IndexSelectionEnv(gym.Env):
         '''
         replica = self.replicas[replica_index]
         try:
-            with psycopg.connect(replica.connection_string()) as conn:
-                with conn.cursor() as cur:
-                    if self.mode == 'cost':
-                        virtual_oid = self._virtual_index_oids[replica_index][candidate_index]
-                        if virtual_oid == 0:
-                            print('********* missing oid for virtual index %d on replica %d !!' % (candidate_index, replica_index))
-                        cur.execute('SELECT hypopg_drop_index(%s);' % self._virtual_index_oids[replica_index][candidate_index])
-                    else:
-                        cur.execute('DROP INDEX candidate_index_%d;' % candidate_index)
+            conn = replica.connection()
+            with conn.cursor() as cur:
+                if self.mode == 'cost':
+                    virtual_oid = self._virtual_index_oids[replica_index][candidate_index]
+                    if virtual_oid == 0:
+                        print('********* missing oid for virtual index %d on replica %d !!' % (candidate_index, replica_index))
+                    cur.execute('SELECT hypopg_drop_index(%s);' % self._virtual_index_oids[replica_index][candidate_index])
+                else:
+                    cur.execute('DROP INDEX candidate_index_%d;' % candidate_index)
+                conn.commit()
         except Exception as err:
             print(f'got an exception in the database connection while dropping index {candidate_index} on replica {replica.id}')
             print(err)
+            conn.rollback()
     
     def _drop_all_indexes(self, mode: str = 'cost'):
         '''

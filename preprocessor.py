@@ -47,10 +47,11 @@ class Preprocessor:
             return infile.readlines()
 
     def _read_tables(self):
-        with psycopg.connect(self.database.connection_string()) as conn:
-            with conn.cursor() as cur:
-                cur.execute('SELECT table_name FROM information_schema.tables WHERE table_schema = \'public\';')
-                self.tables = [name[0] for name in cur.fetchall()]
+        conn = self.database.connection()
+        with conn.cursor() as cur:
+            cur.execute('SELECT table_name FROM information_schema.tables WHERE table_schema = \'public\';')
+            self.tables = [name[0] for name in cur.fetchall()]
+            conn.commit()
     
     def _read_columns(self):
         assert len(self.tables) > 0, 'trying to read columns before tables!'
@@ -61,16 +62,18 @@ class Preprocessor:
         QUERY_TEMPLATE = "SELECT * FROM %s LIMIT 0;"
 
         try:
-            with psycopg.connect(self.database.connection_string()) as conn:
-                with conn.cursor() as cur:
-                    for table in self.tables:
-                        cur.execute(QUERY_TEMPLATE % table)
-                        for desc in cur.description:
-                            self.columns.append(desc[0])
-                            self.cols_to_table[desc[0]] = table
+            conn = self.database.connection()
+            with conn.cursor() as cur:
+                for table in self.tables:
+                    cur.execute(QUERY_TEMPLATE % table)
+                    for desc in cur.description:
+                        self.columns.append(desc[0])
+                        self.cols_to_table[desc[0]] = table
+                conn.commit()
         except Exception as err:
             print('got an exception in the database connection')
             print(err)
+            conn.rollback()
     
     def get_indexable_columns(self, templates):
         self.candidates = {}
@@ -96,31 +99,33 @@ class Preprocessor:
         tried = set()
 
         try:
-            with psycopg.connect(self.database.connection_string()) as conn:
-                with conn.cursor() as cur:
-                    for candidate in self.indexable:
-                        if len(candidate) == 0: continue
-                        if candidate in tried: continue
-                        tried.add(candidate)
-                        print('evaluating candidate:', candidate)
-                        computed_size = 0
-                        candidate_representation = construct_indexes_from_candidate(candidate, self.cols_to_table)
-                        print('---', candidate_representation)
-                        for table, columns in candidate_representation.items():
-                            cur.execute('CREATE INDEX candidate_index ON %s (%s);' % (table, ', '.join(columns)))
-                            cur.execute("SELECT pg_table_size('candidate_index');")
-                            computed_size += cur.fetchone()[0]
-                            cur.execute('DROP INDEX candidate_index;')
-                        print('--- computed size:', computed_size)
-                        if space_budget > computed_size:
-                            self.candidates.append(candidate)
-                            self.candidate_sizes[candidate] = computed_size
-                        else:
-                            modified = drop_one(candidate)
-                            print('----- too large! we\'ll try again with ', modified)
-                            self.indexable.append(modified)
+            conn = self.database.connection()
+            with conn.cursor() as cur:
+                for candidate in self.indexable:
+                    if len(candidate) == 0: continue
+                    if candidate in tried: continue
+                    tried.add(candidate)
+                    print('evaluating candidate:', candidate)
+                    computed_size = 0
+                    candidate_representation = construct_indexes_from_candidate(candidate, self.cols_to_table)
+                    print('---', candidate_representation)
+                    for table, columns in candidate_representation.items():
+                        cur.execute('CREATE INDEX candidate_index ON %s (%s);' % (table, ', '.join(columns)))
+                        cur.execute("SELECT pg_table_size('candidate_index');")
+                        computed_size += cur.fetchone()[0]
+                        cur.execute('DROP INDEX candidate_index;')
+                    print('--- computed size:', computed_size)
+                    if space_budget > computed_size:
+                        self.candidates.append(candidate)
+                        self.candidate_sizes[candidate] = computed_size
+                    else:
+                        modified = drop_one(candidate)
+                        print('----- too large! we\'ll try again with ', modified)
+                        self.indexable.append(modified)
+                conn.commit()
         except Exception as err:
             print('got an exception in the database connection')
             print(err)
+            conn.rollback()
         
         self.candidates = list(set(self.candidates))

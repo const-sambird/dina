@@ -22,27 +22,28 @@ class Router:
         try:
             for i_rep, replica in enumerate(self.replicas):
                 print(f'* benchmarking on replica {i_rep + 1} of {len(self.replicas)}')
-                with psycopg.connect(replica.connection_string()) as conn:
-                    with conn.cursor() as cur:
-                        indexes_required = 0
+                conn = replica.connection()
+                with conn.cursor() as cur:
+                    indexes_required = 0
 
-                        for config in configurations[i_rep]:
-                            table = config[0]
-                            columns = config[1]
-                            indexes_required += 1
-                            print(f'creating index {indexes_required} : {table}')
-                            creation_string = 'CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns))
-                            cur.execute('SELECT indexrelid FROM hypopg_create_index($$%s$$);' % creation_string)
-                        
-                        REGEX = 'cost=([0-9]+\\.[0-9]+)'
+                    for config in configurations[i_rep]:
+                        table = config[0]
+                        columns = config[1]
+                        indexes_required += 1
+                        print(f'creating index {indexes_required} : {table}')
+                        creation_string = 'CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns))
+                        cur.execute('SELECT indexrelid FROM hypopg_create_index($$%s$$);' % creation_string)
+                    
+                    REGEX = 'cost=([0-9]+\\.[0-9]+)'
 
-                        for idx, query in enumerate(self.queries):
-                            print(f'estimating query {idx + 1} cost of {len(self.queries)}')
-                            cur.execute('EXPLAIN %s;' % query)
-                            if after_timing := re.search(REGEX, cur.fetchone()[0], re.IGNORECASE):
-                                self.times[i_rep][idx] = float(after_timing.group(1))
-                        
-                        cur.execute('SELECT hypopg_reset();')
+                    for idx, query in enumerate(self.queries):
+                        print(f'estimating query {idx + 1} cost of {len(self.queries)}')
+                        cur.execute('EXPLAIN %s;' % query)
+                        if after_timing := re.search(REGEX, cur.fetchone()[0], re.IGNORECASE):
+                            self.times[i_rep][idx] = float(after_timing.group(1))
+                    
+                    cur.execute('SELECT hypopg_reset();')
+                    conn.commit()
 
         except Exception as err:
             print('got an exception in the database connection')
@@ -52,28 +53,30 @@ class Router:
         try:
             for i_rep, replica in enumerate(self.replicas):
                 print(f'* benchmarking on replica {i_rep + 1} of {len(self.replicas)}')
-                with psycopg.connect(replica.connection_string()) as conn:
-                    with conn.cursor() as cur:
-                        indexes_required = 0
+                conn = replica.connection()
+                with conn.cursor() as cur:
+                    indexes_required = 0
 
-                        for config in configurations[i_rep]:
-                            table = config[0]
-                            columns = config[1]
-                            indexes_required += 1
-                            print(f'creating index {indexes_required} : {table}')
-                            cur.execute('CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns)))
-                        
-                        for idx, query in enumerate(self.queries):
-                            print(f'testing query {idx + 1} of {len(self.queries)}')
-                            tic = time.time()
-                            cur.execute(query)
-                            toc = time.time()
+                    for config in configurations[i_rep]:
+                        table = config[0]
+                        columns = config[1]
+                        indexes_required += 1
+                        print(f'creating index {indexes_required} : {table}')
+                        cur.execute('CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns)))
+                    
+                    for idx, query in enumerate(self.queries):
+                        print(f'testing query {idx + 1} of {len(self.queries)}')
+                        tic = time.time()
+                        cur.execute(query)
+                        toc = time.time()
 
-                            self.times[i_rep][idx] = toc - tic
-                        
-                        while indexes_required > 0:
-                            cur.execute('DROP INDEX candidate_index_%d;' % indexes_required)
-                            indexes_required -= 1
+                        self.times[i_rep][idx] = toc - tic
+                    
+                    while indexes_required > 0:
+                        cur.execute('DROP INDEX candidate_index_%d;' % indexes_required)
+                        indexes_required -= 1
+                    
+                    conn.commit()
 
         except Exception as err:
             print('got an exception in the database connection')

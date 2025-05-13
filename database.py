@@ -8,23 +8,40 @@ class Replica:
         self.dbname = dbname
         self.user = user
         self.password = password
+        self.conn = None
 
     def connection_string(self):
         return f'host={self.hostname} port={self.port} dbname={self.dbname} user={self.user} password={self.password}'
     
     def drop_all_indexes(self, tables, mode: str):
         try:
-            with psycopg.connect(self.connection_string()) as conn:
-                with conn.cursor() as cur:
-                    for table in tables:
-                        if mode == 'cost':
-                            cur.execute('SELECT hypopg_reset();')
-                        else:
-                            # https://stackoverflow.com/questions/34010401/how-can-i-drop-all-indexes-of-a-table-in-postgres
-                            cur.execute(QUERY_TEMPLATE % table)
+            with self.conn.cursor() as cur:
+                for table in tables:
+                    if mode == 'cost':
+                        cur.execute('SELECT hypopg_reset();')
+                    else:
+                        # https://stackoverflow.com/questions/34010401/how-can-i-drop-all-indexes-of-a-table-in-postgres
+                        cur.execute(QUERY_TEMPLATE % table)
         except Exception as e:
             print(f'error while trying to drop indexes in replica {self.id}!')
             print(e)
+
+
+    def connection(self):
+        if self.conn is None:
+            self.conn = psycopg.connect(self.connection_string())
+        return self.conn
+    
+    def commit(self):
+        self.conn.commit()
+
+    def rollback(self):
+        self.conn.rollback()
+    
+    def close(self):
+        self.conn.close()
+        self.conn = None
+
 
 QUERY_TEMPLATE = '''
 DO

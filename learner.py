@@ -320,6 +320,10 @@ if __name__ == '__main__':
     wandb.define_metric('episodes', summary='mean')
     wandb.define_metric('mean_opt_time', summary='mean')
 
+    # instantiate database connections
+    for replica in replicas:
+        replica.connection()
+
     tic = time.time()
     p = Preprocessor(profiler, replicas[0], args.max_index_width)
     p.preprocess(SPACE_BUDGET)
@@ -378,6 +382,10 @@ if __name__ == '__main__':
 
     router = Router(p.templates, parsed_config, p.tables, replicas, profiler, EXE_MODE)
     router.evaluate()
+
+    # close database replica connections
+    for replica in replicas:
+        replica.close()
 
     print('LEARNED CONFIGURATION')
     learned_config = []
