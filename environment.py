@@ -280,8 +280,13 @@ class IndexSelectionEnv(gym.Env):
         
         processing_reward = abs(self.baseline - total_cost) / self.baseline
         skew_reward = self._skew_reward(total_cost, replica_costs)
+        total_reward = (self.alpha * processing_reward) + (self.beta * skew_reward)
 
-        return (self.alpha * processing_reward) + (self.beta * skew_reward)
+        print(f'workload reward:    {processing_reward}')
+        print(f'skew reward:        {skew_reward}')
+        print(f'total reward:       {total_reward}')
+
+        return total_reward
 
     def _skew_reward(self, total_cost, replica_costs):
         num_replicas = len(replica_costs)
