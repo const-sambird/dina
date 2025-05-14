@@ -77,6 +77,7 @@ class IndexSelectionEnv(gym.Env):
         self._drop_all_indexes('cost')
         self._drop_all_indexes('exe')
         self._compute_baseline()
+        self._baseline_replica_cache = self.replica_cache.copy()
     
     def _get_obs(self):
         return self._state
@@ -97,7 +98,7 @@ class IndexSelectionEnv(gym.Env):
 
         self._state = np.zeros((self.num_replicas, self.num_candidates))
         self.spaces_used = [0 for i in range(self.num_replicas)]
-        self.replica_cache = [0 for i in range(self.num_replicas)]
+        self.replica_cache = self._baseline_replica_cache.copy()
         self._action_mask = np.ones((self.num_replicas * self.num_candidates,), dtype=np.int8)
         self._virtual_index_oids = np.zeros((self.num_replicas, self.num_candidates), dtype=np.uint32)
         observation = self._get_obs()
@@ -319,7 +320,7 @@ class IndexSelectionEnv(gym.Env):
 
         for replica in range(num_replicas):
             cost = 0
-            for query in len(self.queries):
+            for query in range(len(self.queries)):
                 if self.router.routes[query] == replica:
                     cost += self.router.costs[query]
             this_skew = abs(cost - bestcase)
