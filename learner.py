@@ -231,6 +231,7 @@ def create_arguments():
     parser.add_argument('--skew-factor', type=float, default=0.5, help='the weight that the workload skew should take in the reward function')
     parser.add_argument('--qnn-output', type=str, choices=['trunc', 'layer'], help='how should we map the output probabilities from the QNN to actions? [trunc]ate them to fit or add a classical [layer] (quantum only)')
     parser.add_argument('--seed', type=int, default=None, help='the seed for the PRNG used in exploration')
+    parser.add_argument('--dry-run', action='store_true', help='do not enable logging to weights & biases for this run')
 
     return parser.parse_args()
 
@@ -314,7 +315,8 @@ if __name__ == '__main__':
             'SEED': SEED,
             'NUM_REPLICAS': len(replicas),
             'NUM_SHOTS': NUM_SHOTS
-        }
+        },
+        mode='disabled' if args.dry_run else 'online'
     )
 
     wandb.define_metric('episodes', summary='mean')
@@ -332,11 +334,13 @@ if __name__ == '__main__':
     for replica in replicas:
         replica.drop_all_indexes(p.tables, EXE_MODE)
 
+    router = Router(p.templates, p.tables, replicas, p.candidates, p.cols_to_table, profiler, EXE_MODE)
+
     gym.register(
         id='gymnasium_env/IndexSelectionEnv',
         entry_point=IndexSelectionEnv
     )
-    env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, profiler=profiler, replicas=replicas, candidates=p.candidates, tables=p.tables, cols_to_table=p.cols_to_table, templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA, mode = EXE_MODE)
+    env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, profiler=profiler, replicas=replicas, router=router, candidates=p.candidates, tables=p.tables, cols_to_table=p.cols_to_table, templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA, mode = EXE_MODE)
 
     # Get number of actions from gym action space
     n_actions = env.action_space.n
@@ -369,19 +373,7 @@ if __name__ == '__main__':
     parsed_config = []
     final_state = config[0].tolist()[0]
 
-    for idx in range(len(replicas)):
-        indexes = []
-        for can_idx, include in enumerate(final_state[idx]):
-            if include == 1:
-                indexes.append(can_idx)
-        indexes = [p.candidates[can_idx] for can_idx in indexes]
-        # add the table name too
-        indexes = [[p.cols_to_table[x[0]], x] for x in indexes]
-
-        parsed_config.append(indexes)
-
-    router = Router(p.templates, parsed_config, p.tables, replicas, profiler, EXE_MODE)
-    router.evaluate()
+    router.evaluate(final_state)
 
     # close database replica connections
     for replica in replicas:
@@ -419,7 +411,7 @@ if __name__ == '__main__':
         qphh = query.main(
             replicas,
             router.routes,
-            parsed_config,
+            router.parse_state_matrix(final_state),
             scale=args.scale_factor
         )
 

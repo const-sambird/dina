@@ -6,44 +6,47 @@ from database import Replica
 from profiling import Profiler
 
 class Router:
-    def __init__(self, queries, configurations, tables: list[str], replicas: list[Replica], profiler: Profiler, mode: str):
+    def __init__(self, queries, tables: list[str], replicas: list[Replica], candidates: tuple[str], cols_to_table: dict, profiler: Profiler, mode: str):
         self.queries = queries
-        self.configurations = configurations
         self.tables = tables
         self.replicas = replicas
+        self.candidates = candidates
+        self.cols_to_table = cols_to_table
         self.num_replicas = len(replicas)
         self.profiler = profiler
         self.mode = mode
         
         self.times = np.full((self.num_replicas, len(queries)), float('inf'))
+        self.costs = np.full(len(queries), float('inf'))
         self.routes = [-1 for _ in queries]
 
     def _evaluate_cost(self, configurations):
         try:
             for i_rep, replica in enumerate(self.replicas):
-                print(f'* benchmarking on replica {i_rep + 1} of {len(self.replicas)}')
-                conn = replica.connection()
-                with conn.cursor() as cur:
-                    indexes_required = 0
+                #print(f'* benchmarking on replica {i_rep + 1} of {len(self.replicas)}')
+                # here, we actually want to open a new connection, so as to not interfere with
+                # the existing virtual indexes in our main replica connection
+                with psycopg.connect(replica.connection_string()) as conn:
+                    with conn.cursor() as cur:
+                        indexes_required = 0
 
-                    for config in configurations[i_rep]:
-                        table = config[0]
-                        columns = config[1]
-                        indexes_required += 1
-                        print(f'creating index {indexes_required} : {table}')
-                        creation_string = 'CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns))
-                        cur.execute('SELECT indexrelid FROM hypopg_create_index($$%s$$);' % creation_string)
-                    
-                    REGEX = 'cost=([0-9]+\\.[0-9]+)'
+                        for config in configurations[i_rep]:
+                            table = config[0]
+                            columns = config[1]
+                            indexes_required += 1
+                            #print(f'creating index {indexes_required} : {table}')
+                            creation_string = 'CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns))
+                            cur.execute('SELECT indexrelid FROM hypopg_create_index($$%s$$);' % creation_string)
+                        
+                        REGEX = 'cost=([0-9]+\\.[0-9]+)'
 
-                    for idx, query in enumerate(self.queries):
-                        print(f'estimating query {idx + 1} cost of {len(self.queries)}')
-                        cur.execute('EXPLAIN %s;' % query)
-                        if after_timing := re.search(REGEX, cur.fetchone()[0], re.IGNORECASE):
-                            self.times[i_rep][idx] = float(after_timing.group(1))
-                    
-                    cur.execute('SELECT hypopg_reset();')
-                    conn.commit()
+                        for idx, query in enumerate(self.queries):
+                            #print(f'estimating query {idx + 1} cost of {len(self.queries)}')
+                            cur.execute('EXPLAIN %s;' % query)
+                            if after_timing := re.search(REGEX, cur.fetchone()[0], re.IGNORECASE):
+                                self.times[i_rep][idx] = float(after_timing.group(1))
+                        
+                        cur.execute('SELECT hypopg_reset();')
 
         except Exception as err:
             print('got an exception in the database connection')
@@ -52,7 +55,7 @@ class Router:
     def _evaluate_exe(self, configurations):
         try:
             for i_rep, replica in enumerate(self.replicas):
-                print(f'* benchmarking on replica {i_rep + 1} of {len(self.replicas)}')
+                #print(f'* benchmarking on replica {i_rep + 1} of {len(self.replicas)}')
                 conn = replica.connection()
                 with conn.cursor() as cur:
                     indexes_required = 0
@@ -61,11 +64,11 @@ class Router:
                         table = config[0]
                         columns = config[1]
                         indexes_required += 1
-                        print(f'creating index {indexes_required} : {table}')
+                        #print(f'creating index {indexes_required} : {table}')
                         cur.execute('CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns)))
                     
                     for idx, query in enumerate(self.queries):
-                        print(f'testing query {idx + 1} of {len(self.queries)}')
+                        #print(f'testing query {idx + 1} of {len(self.queries)}')
                         tic = time.time()
                         cur.execute(query)
                         toc = time.time()
@@ -82,16 +85,33 @@ class Router:
             print('got an exception in the database connection')
             print(err)
     
-    def evaluate(self):
+    def parse_state_matrix(self, state):
+        parsed_config = []
+
+        for idx in range(self.num_replicas):
+            indexes = []
+            for can_idx, include in enumerate(state[idx]):
+                if include == 1:
+                    indexes.append(can_idx)
+            indexes = [self.candidates[can_idx] for can_idx in indexes]
+            # add the table name too
+            indexes = [[self.cols_to_table[x[0]], x] for x in indexes]
+            parsed_config.append(indexes)
+        
+        return parsed_config
+    
+    def evaluate(self, configurations):
+        configurations = self.parse_state_matrix(configurations)
         for replica in self.replicas:
             replica.drop_all_indexes(self.tables, 'exe')
         self.profiler.time_in('database.route')
         if self.mode == 'cost':
-            self._evaluate_cost(self.configurations)
+            self._evaluate_cost(configurations)
         else:
-            self._evaluate_exe(self.configurations)
+            self._evaluate_exe(configurations)
         self.profiler.time_out()
 
         self.routes = np.argmin(self.times, axis=0)
+        self.costs = [self.times[rep][i] for i, rep in enumerate(self.routes)]
 
         return self.routes

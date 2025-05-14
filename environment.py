@@ -8,13 +8,14 @@ from random import choice
 from util import extract_columns_from_query, insert_dummy_values, construct_indexes_from_candidate
 from profiling import Profiler
 from database import Replica
+from router import Router
 
 # a postgres constant. if the space used is within this amount of the 
 # space budget, we can never add more indexes
 SMALLEST_POSSIBLE_INDEX_SIZE = 16384
 
 class IndexSelectionEnv(gym.Env):
-    def __init__(self, profiler: Profiler, replicas: list[Replica], candidates, tables, cols_to_table, templates, queries, space_budget, alpha, beta, mode = 'cost'):
+    def __init__(self, profiler: Profiler, replicas: list[Replica], router: Router, candidates, tables, cols_to_table, templates, queries, space_budget, alpha, beta, mode = 'cost'):
         '''
         The mode is how DINA evaluates rewards.
         - `cost`: we use PostgreSQL's cost estimator to evaluate the performance of indexes
@@ -27,6 +28,7 @@ class IndexSelectionEnv(gym.Env):
 
         self.profiler = profiler
         self.replicas = replicas
+        self.router = router
         self.candidates = candidates
         self.cols_to_table = cols_to_table
         self.mode = mode
@@ -259,7 +261,21 @@ class IndexSelectionEnv(gym.Env):
         self.candidate_sizes[candidate] = computed_size
         return computed_size
 
-    def reward(self, updated_replica):
+    def reward(self, updated_replica: int) -> float:
+        '''
+        Computes the reward value for this (state, action) pair. The reward is a combination
+        of the *workload* reward, which is a measure of how long we take to actually execute
+        the workload, and the *skew* reward, which is a measure of the imbalance of the workload
+        across the various database replicas. The behaviour of the reward function depends on the
+        execution mode; if `cost`, we use PostgreSQL's cost estimator, if `exe`, we use actual
+        execution time.
+
+        The reward function is given by:
+
+        `(SKEW_FACTOR * skew_reward) + (WORKLOAD_FACTOR * workload_reward)`
+
+        For more information about the reward function, see the original DINA paper.
+        '''
         benchmark_fn = None
         if self.mode == 'cost':
             benchmark_fn = self._benchmark_index_cost
@@ -267,7 +283,6 @@ class IndexSelectionEnv(gym.Env):
             benchmark_fn = self._benchmark_index_exe
         
         total_cost = 0
-        replica_costs = [x for x in self.replica_cache]
         
         self.profiler.time_out()
         self.profiler.time_in('database.benchmark')
@@ -275,11 +290,17 @@ class IndexSelectionEnv(gym.Env):
         self.profiler.time_out()
         self.profiler.time_in('step')
 
-        replica_costs[updated_replica] = total_cost
-        total_cost = sum(replica_costs)
+        self.replica_cache[updated_replica] = total_cost
+        total_cost = sum(self.replica_cache)
+        print('workload costs', total_cost, self.replica_cache)
+
+        # recompute the routeing table; used for the skew reward
+        self.profiler.time_out()
+        routes = self.router.evaluate(self._state)
+        self.profiler.time_in('step')
         
-        processing_reward = abs(self.baseline - total_cost) / self.baseline
-        skew_reward = self._skew_reward(total_cost, replica_costs)
+        processing_reward = (self.baseline - total_cost) / self.baseline
+        skew_reward = self._skew_reward(total_cost, self.replica_cache)
         total_reward = (self.alpha * processing_reward) + (self.beta * skew_reward)
 
         print(f'workload reward:    {processing_reward}')
@@ -290,10 +311,17 @@ class IndexSelectionEnv(gym.Env):
 
     def _skew_reward(self, total_cost, replica_costs):
         num_replicas = len(replica_costs)
+        if num_replicas == 1:
+            # trivially the skew doesn't matter. there's only one replica!
+            return 0
         bestcase = total_cost / num_replicas
         skew = 0
 
-        for cost in replica_costs:
+        for replica in range(num_replicas):
+            cost = 0
+            for query in len(self.queries):
+                if self.router.routes[query] == replica:
+                    cost += self.router.costs[query]
             this_skew = abs(cost - bestcase)
             skew += this_skew / bestcase
         
@@ -418,8 +446,9 @@ class IndexSelectionEnv(gym.Env):
             benchmark_fn = self._benchmark_index_exe
 
         baseline = 0
-        for replica in self.replicas:
+        for idx, replica in enumerate(self.replicas):
             if cost := benchmark_fn(self.queries, replica):
+                self.replica_cache[idx] = cost
                 baseline += cost
         
         self.baseline = baseline
