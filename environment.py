@@ -36,7 +36,6 @@ class IndexSelectionEnv(gym.Env):
         self.alpha = alpha
         self.beta = beta
 
-        self.replica_cache = [0 for i in range(len(replicas))]
         self.spaces_used = [0 for i in range(len(replicas))]
         self.candidate_sizes = {}
 
@@ -77,7 +76,6 @@ class IndexSelectionEnv(gym.Env):
         self._drop_all_indexes('cost')
         self._drop_all_indexes('exe')
         self._compute_baseline()
-        self._baseline_replica_cache = self.replica_cache.copy()
     
     def _get_obs(self):
         return self._state
@@ -87,7 +85,6 @@ class IndexSelectionEnv(gym.Env):
             'mode': self.mode,
             'alpha': self.alpha,
             'beta': self.beta,
-            'cache': self.replica_cache,
             'budget': self.space_budget,
             'spaces_used': self.spaces_used,
             'mask': self._action_mask
@@ -98,7 +95,6 @@ class IndexSelectionEnv(gym.Env):
 
         self._state = np.zeros((self.num_replicas, self.num_candidates))
         self.spaces_used = [0 for i in range(self.num_replicas)]
-        self.replica_cache = self._baseline_replica_cache.copy()
         self._action_mask = np.ones((self.num_replicas * self.num_candidates,), dtype=np.int8)
         self._virtual_index_oids = np.zeros((self.num_replicas, self.num_candidates), dtype=np.uint32)
         observation = self._get_obs()
@@ -276,32 +272,23 @@ class IndexSelectionEnv(gym.Env):
         `(SKEW_FACTOR * skew_reward) + (WORKLOAD_FACTOR * workload_reward)`
 
         For more information about the reward function, see the original DINA paper.
-        '''
-        benchmark_fn = None
-        if self.mode == 'cost':
-            benchmark_fn = self._benchmark_index_cost
-        else:
-            benchmark_fn = self._benchmark_index_exe
-        
-        total_cost = 0
-        
-        self.profiler.time_out()
-        self.profiler.time_in('database.benchmark')
-        total_cost = benchmark_fn(self.queries, self.replicas[updated_replica])
-        self.profiler.time_out()
-        self.profiler.time_in('step')
-
-        self.replica_cache[updated_replica] = total_cost
-        total_cost = sum(self.replica_cache)
-        print('workload costs', total_cost, self.replica_cache)
-
-        # recompute the routeing table; used for the skew reward
+        '''  
+        # recompute the routeing table; updates the replica costs too
         self.profiler.time_out()
         routes = self.router.evaluate(self._state)
         self.profiler.time_in('step')
         
+        # self.profiler.time_out()
+        # self.profiler.time_in('database.benchmark')
+        # total_cost = benchmark_fn(self.queries, self.replicas[updated_replica])
+        # self.profiler.time_out()
+        # self.profiler.time_in('step')
+
+        total_cost = sum(self.router.query_costs)
+        print('workload costs', total_cost, self.router.replica_costs)
+        
         processing_reward = (self.baseline - total_cost) / self.baseline
-        skew_reward = self._skew_reward(total_cost, self.replica_cache)
+        skew_reward = self._skew_reward(total_cost, self.router.replica_costs)
         total_reward = (self.alpha * processing_reward) + (self.beta * skew_reward)
 
         print(f'workload reward:    {processing_reward}')
@@ -319,70 +306,12 @@ class IndexSelectionEnv(gym.Env):
         skew = 0
 
         for replica in range(num_replicas):
-            cost = 0
-            for query in range(len(self.queries)):
-                if self.router.routes[query] == replica:
-                    cost += self.router.costs[query]
-            this_skew = abs(cost - bestcase)
+            this_skew = abs(replica_costs[replica] - bestcase)
             skew += this_skew / bestcase
         
         if skew == 0:
-            return 1000
+            return 1
         return 1 / skew
-
-    def _benchmark_index_exe(self, queries: list[str], replica: Replica) -> float | None:
-        '''
-        Returns the *actual execution time* of the given queries,
-        provided that the candidate index described in `cols_to_index`
-        is constructed on the table(s).
-
-        Returns None if it is not possible to benchmark this candidate.
-        '''
-        try:
-            conn = replica.connection()
-            with conn.cursor() as cur:
-                tic = time.time()
-
-                for query in queries:
-                    cur.execute('%s;' % query)
-
-                toc = time.time()
-
-                conn.commit()
-                return toc - tic
-        except Exception as err:
-            print('got an exception in the database connection')
-            print(err)
-            conn.rollback()
-            return 0
-
-    def _benchmark_index_cost(self, queries: list[str], replica: Replica) -> float | None:
-        '''
-        Returns the *estimated execution cost* of the given queries,
-        as given by PostgreSQL's cost estimation module, provided
-        that the candidate index described in `cols_to_index` is
-        constructed on the table(s).
-
-        Returns None if it is not possible to benchmark this candidate.
-        '''
-        try:
-            conn = replica.connection()
-            with conn.cursor() as cur:
-                REGEX = 'cost=([0-9]+\\.[0-9]+)'
-                cost = 0
-
-                for query in queries:
-                    cur.execute('EXPLAIN %s;' % query)
-                    if after_timing := re.search(REGEX, cur.fetchone()[0], re.IGNORECASE):
-                        cost += float(after_timing.group(1))
-                
-                conn.commit()
-                return cost
-        except Exception as err:
-            print('got an exception in the database connection')
-            print(err)
-            conn.rollback()
-            return 0
         
     def _construct_index(self, candidate_index: int, replica_index: int):
         '''
@@ -440,19 +369,8 @@ class IndexSelectionEnv(gym.Env):
             replica.drop_all_indexes(self.tables, mode)
     
     def _compute_baseline(self):
-        benchmark_fn = None
-        if self.mode == 'cost':
-            benchmark_fn = self._benchmark_index_cost
-        else:
-            benchmark_fn = self._benchmark_index_exe
-
-        baseline = 0
-        for idx, replica in enumerate(self.replicas):
-            if cost := benchmark_fn(self.queries, replica):
-                self.replica_cache[idx] = cost
-                baseline += cost
-        
-        self.baseline = baseline
+        self.router.evaluate(self._state)
+        self.baseline = sum(self.router.replica_costs)
 
     def _compute_space(self, candidates):
         return sum([self.spaces_used[x] for x in candidates])

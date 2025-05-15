@@ -16,8 +16,9 @@ class Router:
         self.profiler = profiler
         self.mode = mode
         
-        self.times = np.full((self.num_replicas, len(queries)), float('inf'))
-        self.costs = np.full(len(queries), float('inf'))
+        self.times = np.full((self.num_replicas, len(queries)), float('inf'), dtype=np.float32)
+        self.query_costs = np.full(len(queries), float('inf'), dtype=np.float32)
+        self.replica_costs = np.full(self.num_replicas, float('inf'), dtype=np.float32)
         self.routes = [-1 for _ in queries]
 
     def _evaluate_cost(self, configurations):
@@ -112,6 +113,12 @@ class Router:
         self.profiler.time_out()
 
         self.routes = np.argmin(self.times, axis=0)
-        self.costs = [self.times[rep][i] for i, rep in enumerate(self.routes)]
+        self.query_costs = [self.times[rep][i] for i, rep in enumerate(self.routes)]
+
+        for replica in range(self.num_replicas):
+            self.replica_costs[replica] = 0
+            for query in range(len(self.queries)):
+                if self.routes[query] == replica:
+                    self.replica_costs[replica] += self.query_costs[query]
 
         return self.routes
