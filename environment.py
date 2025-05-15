@@ -275,7 +275,7 @@ class IndexSelectionEnv(gym.Env):
         '''  
         # recompute the routeing table; updates the replica costs too
         self.profiler.time_out()
-        routes = self.router.evaluate(self._state)
+        routes = self.router.evaluate()
         self.profiler.time_in('step')
         
         # self.profiler.time_out()
