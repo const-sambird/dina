@@ -70,7 +70,9 @@ def select_action(state, mask):
             # t.max(1) will return the largest column value of each row.
             # second column on max result is index of where max element was
             # found, so we pick action with the larger expected reward.
-            return policy_net(state).max(1).indices.view(1, 1)
+            predictions = policy_net(state).cpu()
+            masked = predictions * mask
+            return masked.max(1).indices.view(1, 1)
     else:
         print(f'exploration ({sample} < {eps_threshold})')
         return torch.tensor([[env.action_space.sample(mask=mask)]], device=device, dtype=torch.long)

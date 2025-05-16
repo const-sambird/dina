@@ -140,7 +140,7 @@ class IndexSelectionEnv(gym.Env):
             self.profiler.time_in('step.compute_size')
             if self._state[replica_to_update][candidate_to_toggle] != 0:
                 self.profiler.time_out()
-                return self._step_early_continuation(reward=-500)
+                return self._step_early_continuation(reward=-1)
             print(f'adding {self.candidates[candidate_to_toggle]} on replica {replica_to_update}')
             required_space = self._get_candidate_size(self.candidates[candidate_to_toggle])
             available_space = self.space_budget - self.spaces_used[replica_to_update]
@@ -160,7 +160,7 @@ class IndexSelectionEnv(gym.Env):
             self.profiler.time_in('step.compute_size')
             if self._state[replica_to_update][candidate_to_toggle] != 1:
                 self.profiler.time_out()
-                return self._step_early_continuation(reward=-500)
+                return self._step_early_continuation(reward=-1)
             print(f'removing {self.candidates[candidate_to_toggle]} on replica {replica_to_update}')
             required_space = self._get_candidate_size(self.candidates[candidate_to_toggle])
             self._state[replica_to_update][candidate_to_toggle] = 0
@@ -206,8 +206,8 @@ class IndexSelectionEnv(gym.Env):
     
     def _step_early_continuation(self, reward = 0.0):
         '''
-        Called when an action is passed to the environment that would
-        cause us to exceed our space budget if executed, but there do
+        Called when an action is passed to the environment that is
+        not valid (ie, add an index when it's already present), but there do
         still exist some actions that are valid (so we should not terminate
         this training episode).
 
