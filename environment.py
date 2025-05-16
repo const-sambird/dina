@@ -45,7 +45,7 @@ class IndexSelectionEnv(gym.Env):
         self.queries = queries
         self.tables = tables
 
-        self._action_mask = np.ones(shape=(self.num_replicas * self.num_candidates,), dtype=np.int8)
+        self._action_mask = np.ones(shape=(self.num_replicas * self.num_candidates * 2,), dtype=np.int8)
 
         '''
         The HypoPG what-if optimiser returns oids that represent the virtual indexes. We need to
@@ -71,7 +71,8 @@ class IndexSelectionEnv(gym.Env):
         The action space is the set of index configurations on each replica, but each candidate on
         each replica may either be created or dropped.
         '''
-        self.action_space = gym.spaces.Discrete(self.num_candidates * self.num_replicas)
+        self.action_space = gym.spaces.Discrete(self.num_candidates * self.num_replicas * 2)
+        self.action_drop_threshold = self.action_space.n // 2
 
         self._drop_all_indexes('cost')
         self._drop_all_indexes('exe')
@@ -95,7 +96,7 @@ class IndexSelectionEnv(gym.Env):
 
         self._state = np.zeros((self.num_replicas, self.num_candidates))
         self.spaces_used = [0 for i in range(self.num_replicas)]
-        self._action_mask = np.ones((self.num_replicas * self.num_candidates,), dtype=np.int8)
+        self._action_mask = np.ones((self.num_replicas * self.num_candidates * 2,), dtype=np.int8)
         self._virtual_index_oids = np.zeros((self.num_replicas, self.num_candidates), dtype=np.uint32)
         observation = self._get_obs()
         info = self._get_info()
@@ -130,9 +131,10 @@ class IndexSelectionEnv(gym.Env):
         print('action:', action)
         self.profiler.count_up()
         #self.profiler.time_in('step')
+        creating = action > self.action_drop_threshold
+        action = action - (self.action_space.n // 2) # now represents an index into the observation space
         candidate_to_toggle = action % self.num_candidates
         replica_to_update = action // self.num_candidates
-        creating = self._state[replica_to_update][candidate_to_toggle] == 0
 
         if creating:
             self.profiler.time_in('step.compute_size')
@@ -379,6 +381,9 @@ class IndexSelectionEnv(gym.Env):
         '''
         Update the action state mask. Marks this replica as 'complete'.
         '''
-        lower_bound = replica * self.num_candidates
-        upper_bound = (replica + 1) * self.num_candidates
-        self._action_mask[lower_bound:upper_bound] = 0
+        lower_bound_create = replica * self.num_candidates
+        upper_bound_create = (replica + 1) * self.num_candidates
+        lower_bound_drop = (self.num_replicas * self.num_candidates) + lower_bound_create
+        upper_bound_drop = (self.num_replicas * self.num_candidates) + upper_bound_create
+        self._action_mask[lower_bound_create:upper_bound_create] = 0
+        self._action_mask[lower_bound_drop:upper_bound_drop] = 0
