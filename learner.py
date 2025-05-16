@@ -158,6 +158,7 @@ def learn(router: Router):
         for t in count():
             action = select_action(state, info['mask'])
             observation, reward, terminated, truncated, info = env.step(action.item())
+            this_reward = reward
             reward = torch.tensor([reward], device=device)
             done = terminated or truncated
 
@@ -190,7 +191,12 @@ def learn(router: Router):
 
             if done:
                 episode_durations.append(t + 1)
-                wandb.log({'episodes': t + 1, 'mean_opt_time': sum(opt_times)/len(opt_times), 'workload_cost': sum(router.replica_costs)})
+                wandb.log({
+                    'episodes': t + 1,
+                    'mean_opt_time': sum(opt_times)/len(opt_times),
+                    'workload_cost': sum(router.replica_costs),
+                    'reward': this_reward
+                })
                 plot_durations()
                 break
 
