@@ -144,7 +144,7 @@ def optimize_model():
     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
 
-def learn():
+def learn(router: Router):
     # this constant is from the original DINA code. i imagine it's pretty arbitrary
     num_episodes = args.num_epochs
 
@@ -190,7 +190,7 @@ def learn():
 
             if done:
                 episode_durations.append(t + 1)
-                wandb.log({'episodes': t + 1, 'mean_opt_time': sum(opt_times)/len(opt_times)})
+                wandb.log({'episodes': t + 1, 'mean_opt_time': sum(opt_times)/len(opt_times), 'workload_cost': sum(router.replica_costs)})
                 plot_durations()
                 break
 
@@ -362,7 +362,7 @@ if __name__ == '__main__':
     optimizer = optim.AdamW(policy_net.parameters(), lr=LEARNING_RATE, amsgrad=True)
     memory = ReplayMemory(REPLAY_BUFFER_SIZE)
 
-    config = learn()
+    config = learn(router)
     toc = time.time()
 
     print('Complete')
