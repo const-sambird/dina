@@ -72,7 +72,7 @@ def select_action(state, mask):
             # found, so we pick action with the larger expected reward.
             predictions = policy_net(state).cpu()
             masked = predictions * mask
-            return masked.max(1).indices.view(1, 1)
+            return masked.max(1).indices.view(1, 1).to(device=device)
     else:
         print(f'exploration ({sample} < {eps_threshold})')
         return torch.tensor([[env.action_space.sample(mask=mask)]], device=device, dtype=torch.long)
