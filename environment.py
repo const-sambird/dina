@@ -131,8 +131,9 @@ class IndexSelectionEnv(gym.Env):
         print('action:', action)
         self.profiler.count_up()
         #self.profiler.time_in('step')
-        creating = action > self.action_drop_threshold
-        action = action - (self.action_space.n // 2) # now represents an index into the observation space
+        creating = action >= self.action_drop_threshold
+        if creating:
+            action = action - (self.action_space.n // 2) # now represents an index into the observation space
         candidate_to_toggle = action % self.num_candidates
         replica_to_update = action // self.num_candidates
 
