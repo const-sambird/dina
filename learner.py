@@ -387,6 +387,8 @@ if __name__ == '__main__':
     for replica in replicas:
         replica.close()
 
+    config_output_for_benchmarker = []
+
     print('LEARNED CONFIGURATION')
     learned_config = []
     for idx, replica in enumerate(final_state):
@@ -399,12 +401,21 @@ if __name__ == '__main__':
             if include == 1:
                 this_config.append(p.candidates[can_idx])
                 print('-', p.candidates[can_idx])
+                config_output_for_benchmarker.append(f'{idx},' + ','.join(p.candidates[can_idx]))
         learned_config.append(this_config)
     print('ROUTEING TABLE')
     print(router.routes)
     print('PROFILING RESULTS')
     print(profiler.times())
     print('TOTAL EXECUTION TIME: %.2fs' % (toc - tic))
+
+    print('=' * 20)
+    print('OUTPUT RECOMMENDATION FOR BENCHMARKING MODULE\n')
+    print('Index configuration:')
+    print(' '.join(config_output_for_benchmarker))
+    print('\nRouteing table:')
+    print(','.join(map(str, router.routes)))
+    print('=' * 20)
 
     wandb.summary['learned_config'] = learned_config
     wandb.summary['spaces_used'] = config[1]['spaces_used']
