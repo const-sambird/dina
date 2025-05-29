@@ -45,8 +45,6 @@ class IndexSelectionEnv(gym.Env):
         self.queries = queries
         self.tables = tables
 
-        self._action_mask = np.ones(shape=(self.num_replicas * self.num_candidates * 2,), dtype=np.int8)
-
         '''
         The HypoPG what-if optimiser returns oids that represent the virtual indexes. We need to
         store these oids so that we can drop them when the action passed to step() calls for them
@@ -73,6 +71,8 @@ class IndexSelectionEnv(gym.Env):
         '''
         self.action_space = gym.spaces.Discrete(self.num_candidates * self.num_replicas * 2)
         self.action_drop_threshold = self.action_space.n // 2
+        self._action_mask = np.ones((self.num_replicas * self.num_candidates * 2,), dtype=np.int8)
+        self._action_mask[0:self.action_drop_threshold] = 0
 
         self._drop_all_indexes('cost')
         self._drop_all_indexes('exe')
@@ -97,6 +97,7 @@ class IndexSelectionEnv(gym.Env):
         self._state = np.zeros((self.num_replicas, self.num_candidates))
         self.spaces_used = [0 for i in range(self.num_replicas)]
         self._action_mask = np.ones((self.num_replicas * self.num_candidates * 2,), dtype=np.int8)
+        self._action_mask[0:self.action_drop_threshold] = 0
         self._virtual_index_oids = np.zeros((self.num_replicas, self.num_candidates), dtype=np.uint32)
         observation = self._get_obs()
         info = self._get_info()
@@ -129,6 +130,7 @@ class IndexSelectionEnv(gym.Env):
         '''
         print(f'* epoch {self.profiler.count}')
         print('action:', action)
+        action_to_mask = action
         self.profiler.count_up()
         #self.profiler.time_in('step')
         creating = action >= self.action_drop_threshold
@@ -154,9 +156,10 @@ class IndexSelectionEnv(gym.Env):
             self._state[replica_to_update][candidate_to_toggle] = 1
             self.spaces_used[replica_to_update] += required_space
             self._construct_index(candidate_to_toggle, replica_to_update)
+            self._mask_invalid_actions(action_to_mask)
 
             if self.space_budget < self.spaces_used[replica_to_update]:
-                self._update_mask(replica_to_update)
+                self._mark_replica_complete(replica_to_update)
         else:
             self.profiler.time_in('step.compute_size')
             if self._state[replica_to_update][candidate_to_toggle] != 1:
@@ -170,6 +173,7 @@ class IndexSelectionEnv(gym.Env):
             self.profiler.time_out()
             self.profiler.time_in('step.drop_index')
             self._drop_index(candidate_to_toggle, replica_to_update)
+            self._mask_invalid_actions(action_to_mask)
 
         self.profiler.time_out()
         self.profiler.time_in('step.reward')
@@ -378,7 +382,7 @@ class IndexSelectionEnv(gym.Env):
     def _compute_space(self, candidates):
         return sum([self.spaces_used[x] for x in candidates])
 
-    def _update_mask(self, replica: int):
+    def _mark_replica_complete(self, replica: int):
         '''
         Update the action state mask. Marks this replica as 'complete'.
         '''
@@ -388,3 +392,32 @@ class IndexSelectionEnv(gym.Env):
         upper_bound_drop = (self.num_replicas * self.num_candidates) + upper_bound_create
         self._action_mask[lower_bound_create:upper_bound_create] = 0
         self._action_mask[lower_bound_drop:upper_bound_drop] = 0
+    
+    def _mask_invalid_actions(self, action: int) -> None:
+        '''
+        When we take an action (add or remove an index from the current state),
+        that action becomes *invalid* to take again in the current state. Similarly,
+        its inverse becomes valid. For example, if we add candidate A to the state,
+        then CREATE A becomes invalid (because we cannot add an already-extant index),
+        while DROP A becomes valid (we can now drop A from the state, but couldn't
+        do so before, because it wasn't in the state yet). This function updates the
+        mask to constrain the action space -- otherwise, we have a lot of wasted epochs
+        as the neural network learns that these actions are impermissible, which wastes
+        a lot of optimisation time.
+
+        Further reading on action masking:
+        https://openproceedings.org/2022/conf/edbt/paper-37.pdf
+
+        :param action: the index of the action taken. Note this necessarily encodes the
+        replica on which the action was taken, as well as whether or not this was a
+        CREATE INDEX or DROP INDEX, due to the nature of how we encode the action space.
+        '''
+        creating = action >= self.action_drop_threshold
+        if creating:
+            print(f'masking action {action}, unmasking action {action - (self.action_space.n // 2)}')
+            self._action_mask[action] = 0
+            self._action_mask[action - (self.action_space.n // 2)] = 1
+        else:
+            print(f'masking action {action}, unmasking action {action + (self.action_space.n // 2)}')
+            self._action_mask[action] = 0
+            self._action_mask[action + (self.action_space.n // 2)] = 1
