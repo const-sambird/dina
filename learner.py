@@ -57,15 +57,16 @@ def create_nets(n_qubits, quantum, n_observations, n_actions, qnn_output, num_sh
 steps_done = 0
 
 
-def select_action(state, mask):
+def select_action(state, mask, epsilon = None):
     #print('mask:', mask)
     global steps_done
-    sample = random.random()
+    if epsilon is None:
+        epsilon = random.random()
     eps_threshold = EPS_END + (EPS_START - EPS_END) * \
         math.exp(-1. * steps_done / EPS_DECAY)
     steps_done += 1
-    if sample > eps_threshold:
-        print(f'exploitation ({sample} > {eps_threshold})')
+    if epsilon > eps_threshold:
+        print(f'exploitation ({epsilon} > {eps_threshold})')
         with torch.no_grad():
             # t.max(1) will return the largest column value of each row.
             # second column on max result is index of where max element was
@@ -74,7 +75,7 @@ def select_action(state, mask):
             masked = predictions * mask
             return masked.max(1).indices.view(1, 1).to(device=device)
     else:
-        print(f'exploration ({sample} < {eps_threshold})')
+        print(f'exploration ({epsilon} < {eps_threshold})')
         return torch.tensor([[env.action_space.sample(mask=mask)]], device=device, dtype=torch.long)
 
 episode_durations = []
@@ -203,6 +204,24 @@ def learn(router: Router):
     if return_state is not None:
         state = return_state
 
+    return get_final_state(router)
+
+def get_final_state(router: Router):
+    print('***** generating final index configuration!')
+    state, info = env.reset()
+    state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+    for t in count():
+        # get best action (no exploration)
+        action = select_action(state, info['mask'], 1)
+        observation, reward, terminated, truncated, info = env.step(action.item())
+        done = terminated or truncated
+        if done: break
+    state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
+    wandb.log({
+        'episodes': t + 1,
+        'workload_cost': sum(router.replica_costs),
+        'reward': reward
+    })
     return state, info
 
 def preconfigure_wandb():
