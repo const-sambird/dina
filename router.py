@@ -45,9 +45,13 @@ class Router:
 
                     for idx, query in enumerate(self.queries):
                         #print(f'estimating query {idx + 1} cost of {len(self.queries)}')
-                        cur.execute('EXPLAIN %s' % query)
-                        if after_timing := re.search(REGEX, cur.fetchone()[0], re.IGNORECASE):
-                            self.times[i_rep][idx] = float(after_timing.group(1))
+                        for statement in query.split(';'):
+                            if 'create view' in statement or 'drop view' in statement:
+                                cur.execute(statement)
+                            elif 'select' in statement:
+                                cur.execute('EXPLAIN %s' % statement)
+                                if after_timing := re.search(REGEX, cur.fetchone()[0], re.IGNORECASE):
+                                    self.times[i_rep][idx] = float(after_timing.group(1))
                     
                     if configurations is not None:
                         cur.execute('SELECT hypopg_reset();')
