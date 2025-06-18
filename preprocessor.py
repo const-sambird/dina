@@ -33,6 +33,7 @@ class Preprocessor:
     def preprocess(self, space_budget):
         self.profiler.time_in('filesystem')
         self.templates = self._read_templates()
+        self.templates = [self._update_query_text(template) for template in self.templates]
         self.profiler.time_out()
         self.profiler.time_in('database.preprocess')
         self._read_tables()
@@ -42,7 +43,7 @@ class Preprocessor:
 
         print(self.candidates)
     
-    def _read_templates(self, path = './QueryBot5000/templates.txt'):
+    def _read_templates(self, path = './templates.txt'):
         with open(path, 'r') as infile:
             return infile.readlines()
 
@@ -92,40 +93,43 @@ class Preprocessor:
         self.candidates = list(set([x for v in self.candidates.values() for x in v]))
         self.candidates = sorted(self.candidates)
     
-    def get_candidate_indexes(self, space_budget):
-        self.candidates = []
-        self.candidate_sizes = {}
+    # Updates query syntax to work in PostgreSQL
+    def _update_query_text(self, text: str) -> str:
+        '''
+        Updates query text to work in PostgreSQL.
 
-        tried = set()
+        Taken from https://github.com/hyrise/index_selection_evaluation
 
-        try:
-            conn = self.database.connection()
-            with conn.cursor() as cur:
-                for candidate in self.indexable:
-                    if len(candidate) == 0: continue
-                    if candidate in tried: continue
-                    tried.add(candidate)
-                    print('evaluating candidate:', candidate)
-                    computed_size = 0
-                    candidate_representation = construct_indexes_from_candidate(candidate, self.cols_to_table)
-                    print('---', candidate_representation)
-                    for table, columns in candidate_representation.items():
-                        cur.execute('CREATE INDEX candidate_index ON %s (%s);' % (table, ', '.join(columns)))
-                        cur.execute("SELECT pg_table_size('candidate_index');")
-                        computed_size += cur.fetchone()[0]
-                        cur.execute('DROP INDEX candidate_index;')
-                    print('--- computed size:', computed_size)
-                    if space_budget > computed_size:
-                        self.candidates.append(candidate)
-                        self.candidate_sizes[candidate] = computed_size
-                    else:
-                        modified = drop_one(candidate)
-                        print('----- too large! we\'ll try again with ', modified)
-                        self.indexable.append(modified)
-                conn.commit()
-        except Exception as err:
-            print('got an exception in the database connection')
-            print(err)
-            conn.rollback()
-        
-        self.candidates = list(set(self.candidates))
+        :param text: the text of the query to update
+        :returns text: the corrected version
+        '''
+        text = text.replace(";\nlimit ", " limit ").replace("limit -1", "")
+        text = re.sub(r" ([0-9]+) days\)", r" interval '\1 days')", text)
+        text = self._add_alias_subquery(text)
+        return text
+
+    # PostgreSQL requires an alias for subqueries
+    def _add_alias_subquery(self, query_text):
+        text = query_text.lower()
+        positions = []
+        for match in re.finditer(r"((from)|,)[  \n]*\(", text):
+            counter = 1
+            pos = match.span()[1]
+            while counter > 0:
+                char = text[pos]
+                if char == "(":
+                    counter += 1
+                elif char == ")":
+                    counter -= 1
+                pos += 1
+            next_word = query_text[pos:].lstrip().split(" ")[0].split("\n")[0]
+            if next_word[0] in [")", ","] or next_word in [
+                "limit",
+                "group",
+                "order",
+                "where",
+            ]:
+                positions.append(pos)
+        for pos in sorted(positions, reverse=True):
+            query_text = query_text[:pos] + " as alias123 " + query_text[pos:]
+        return query_text
