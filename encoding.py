@@ -97,9 +97,3 @@ class StateDecoder(nn.Module):
         result = torch.where(result > 0, result, 0)
 
         return result.T
-
-class ActionDecoder(nn.Module):
-    '''
-    Our QNN gives us a 2^num_qubits-dimensional tensor as an output, where
-    every 
-    '''
