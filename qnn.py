@@ -10,7 +10,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from encoding import AngleEncoder, AmplitudeEncoder, StateEncoder, ActionDecoder
+from encoding import AngleEncoder, AmplitudeEncoder, StateEncoder
 
 def build_angle_encoded_circuit(n_inputs: int, param_layers: int) -> tuple[QuantumCircuit, list[Parameter], list[Parameter]]:
     '''
