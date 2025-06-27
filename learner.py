@@ -295,9 +295,20 @@ if __name__ == '__main__':
     '''
     ENVIRONMENT
     '''
+    profiler = Profiler()
+    replicas = get_replicas()
+
     random.seed(SEED)
     if SEED is not None:
         torch.manual_seed(SEED)
+        for replica in replicas:
+            with replica.connection().cursor() as cur:
+                if SEED == 0:
+                    to_set = 0
+                else:
+                    to_set = 1 / SEED
+                cur.execute('SELECT setseed(%f);' % to_set)
+            replica.commit()
 
     device = torch.device(
         "cuda" if torch.cuda.is_available() else
@@ -311,9 +322,6 @@ if __name__ == '__main__':
         print('found MPS!')
     else:
         print('****** torch did not find CUDA/MPS! *******')
-
-    profiler = Profiler()
-    replicas = get_replicas()
 
     run = wandb.init(
         project='qdina',

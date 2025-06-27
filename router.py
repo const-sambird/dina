@@ -49,9 +49,9 @@ class Router:
                             if 'create view' in statement or 'drop view' in statement:
                                 cur.execute(statement)
                             elif 'select' in statement:
-                                cur.execute('EXPLAIN %s' % statement)
-                                if after_timing := re.search(REGEX, cur.fetchone()[0], re.IGNORECASE):
-                                    self.times[i_rep][idx] = float(after_timing.group(1))
+                                cur.execute('EXPLAIN (FORMAT JSON) %s' % statement)
+                                if after_timing := cur.fetchone()[0][0]['Plan']['Total Cost']:
+                                    self.times[i_rep][idx] = float(after_timing)
                     
                     if configurations is not None:
                         cur.execute('SELECT hypopg_reset();')
