@@ -6,8 +6,12 @@ from database import Replica
 from profiling import Profiler
 
 class Router:
-    def __init__(self, queries, tables: list[str], replicas: list[Replica], candidates: tuple[str], cols_to_table: dict, profiler: Profiler, mode: str):
+    def __init__(self, queries: list[str], templates: list[int], tables: list[str],
+                 replicas: list[Replica], candidates: tuple[str], cols_to_table: dict,
+                 profiler: Profiler, mode: str):
         self.queries = queries
+        self.templates = templates
+        self.num_templates = len(list(set(templates)))
         self.tables = tables
         self.replicas = replicas
         self.candidates = candidates
@@ -16,8 +20,8 @@ class Router:
         self.profiler = profiler
         self.mode = mode
         
-        self.times = np.full((self.num_replicas, len(queries)), float('inf'), dtype=np.float32)
-        self.query_costs = np.full(len(queries), float('inf'), dtype=np.float32)
+        self.times = np.zeros((self.num_replicas, self.num_templates), dtype=np.float32)
+        self.query_costs = np.full(self.num_templates, float('inf'), dtype=np.float32)
         self.replica_costs = np.full(self.num_replicas, float('inf'), dtype=np.float32)
         self.routes = [-1 for _ in queries]
 
@@ -51,7 +55,7 @@ class Router:
                             elif 'select' in statement:
                                 cur.execute('EXPLAIN (FORMAT JSON) %s' % statement)
                                 if after_timing := cur.fetchone()[0][0]['Plan']['Total Cost']:
-                                    self.times[i_rep][idx] = float(after_timing)
+                                    self.times[i_rep][self.templates[idx]] += float(after_timing)
                     
                     if configurations is not None:
                         cur.execute('SELECT hypopg_reset();')
@@ -85,7 +89,7 @@ class Router:
                         cur.execute(query)
                         toc = time.time()
 
-                        self.times[i_rep][idx] = toc - tic
+                        self.times[i_rep][self.templates[idx]] += toc - tic
                     
                     if configurations is not None:
                         while indexes_required > 0:
@@ -124,6 +128,7 @@ class Router:
                                 information is already persisted in the
                                 connection object.
         '''
+        self.times = np.zeros((self.num_replicas, self.num_templates), dtype=np.float32)
         if configurations is not None:
             configurations = self.parse_state_matrix(configurations)
         for replica in self.replicas:
@@ -140,8 +145,8 @@ class Router:
 
         for replica in range(self.num_replicas):
             self.replica_costs[replica] = 0
-            for query in range(len(self.queries)):
-                if self.routes[query] == replica:
-                    self.replica_costs[replica] += self.query_costs[query]
+            for template in range(self.num_templates):
+                if self.routes[template] == replica:
+                    self.replica_costs[replica] += self.query_costs[template]
 
         return self.routes

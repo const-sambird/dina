@@ -2,15 +2,12 @@ import pickle
 import psycopg
 import re
 from util import extract_columns_from_query, construct_indexes_from_candidate, drop_one, powerset
+from itertools import permutations
 from profiling import Profiler
 from database import Replica
 
-QUERY_TEMPLATE_PATH     = './QueryBot5000/templates.txt'
-CLUSTER_ASSIGNMENT_PATH = './QueryBot5000/online-clustering-results/None-0.8-assignments.pickle'
-COVERAGE_PATH           = './QueryBot5000/cluster-coverage/coverage.pickle'
-
 class Preprocessor:
-    def __init__(self, profiler: Profiler, database: Replica, max_index_width: int):
+    def __init__(self, profiler: Profiler, database: Replica, max_index_width: int, queries: list[str], templates: list[int]):
         '''
         Instantiate the preprocessing module.
 
@@ -18,22 +15,18 @@ class Preprocessor:
         column names, and index sizes.
         '''
         self.columns = []
-        self.workload = []
+        self.workload = queries
+        self.template_assignments = templates
         self.profiler = profiler
         self.database = database
         self.max_index_width = max_index_width
-    
-    def _load_clusters(self):
-        try:
-            with open(CLUSTER_ASSIGNMENT_PATH, 'rb') as clusterfile:
-                num_clusters, assignment_dict, cluster_totals = pickle.load(clusterfile)
-        except:
-            pass
 
     def preprocess(self, space_budget):
         self.profiler.time_in('filesystem')
-        self.templates = self._read_templates()
-        self.templates = [self._update_query_text(template) for template in self.templates]
+        self.workload = [self._update_query_text(query) for query in self.workload]
+        self.templates = []
+        for x in set(self.template_assignments):
+            self.templates.append(self.workload[self.template_assignments.index(x)])
         self.profiler.time_out()
         self.profiler.time_in('database.preprocess')
         self._read_tables()
@@ -42,10 +35,6 @@ class Preprocessor:
         self.get_indexable_columns(self.templates)
 
         print(self.candidates)
-    
-    def _read_templates(self, path = './templates.txt'):
-        with open(path, 'r') as infile:
-            return infile.readlines()
 
     def _read_tables(self):
         conn = self.database.connection()
@@ -86,7 +75,8 @@ class Preprocessor:
                     self.candidates[table] = set()
                 for index in powerset(sorted(columns), self.max_index_width):
                     if len(index) == 0: continue
-                    self.candidates[table].add(index)
+                    for permutation in permutations(index):
+                        self.candidates[table].add(permutation)
         
         # flatten dict of sets of tuples into a list of tuples
         self.tables = list(self.candidates.keys())

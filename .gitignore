@@ -5,10 +5,6 @@ __pycache__/
 .DS_Store/
 replicas.csv
 results/
-tpcbench/__pycache__
-tpcbench/data
-tpcbench/query_root
-tpcbench/sf10
-tpcbench/data.tar.gz
 wandb/
 wandb.env
+workload/

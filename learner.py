@@ -22,6 +22,7 @@ from preprocessor import Preprocessor
 from profiling import Profiler
 from database import Replica
 from router import Router
+from generator import WorkloadGenerator
 
 import wandb
 import os
@@ -241,8 +242,9 @@ def create_arguments():
     parser.add_argument('-e', '--num-epochs', type=int, default=100, help='number of learning episodes')
     parser.add_argument('-w', '--max-index-width', type=int, help='maximum number of columns that may form an index')
     parser.add_argument('-m', '--benchmark-mode', type=str, choices=['cost', 'exe'], default='cost', help='benchmark execution mode -- \'cost\' for the cost estimator, \'exe\' for actual execution times')
-    parser.add_argument('-r', '--run-benchmarks', action='store_true', help='run the TPC-H power and throughput benchmarks')
     parser.add_argument('-o', '--num-shots', type=int, default=1024, help='number of samples to take from the quantum neural network')
+    parser.add_argument('-g', '--generate-queries', action='store_true', help='generate new queries from the templates')
+    parser.add_argument('-t', '--queries-per-template', type=int, default=10, help='number of queries per template that are in the workload or should be generated')
 
     # these ones can probably be left to the defaults
     parser.add_argument('--batch-size', type=int, default=32, help='the batch size to feed into the neural network')
@@ -259,6 +261,11 @@ def create_arguments():
     parser.add_argument('--qnn-output', type=str, choices=['trunc', 'layer'], help='how should we map the output probabilities from the QNN to actions? [trunc]ate them to fit or add a classical [layer] (quantum only)')
     parser.add_argument('--seed', type=int, default=None, help='the seed for the PRNG used in exploration')
     parser.add_argument('--dry-run', action='store_true', help='do not enable logging to weights & biases for this run')
+    parser.add_argument('--workload-dir', type=str, default='./workload', help='the directory where the workload .sql files and template assignment .csv are kept')
+    parser.add_argument('--qgen-dir', type=str, default='./tpc-h/dbgen', help='the dbgen/qgen directory provided by the TPC')
+    parser.add_argument('--template-dir', type=str, default='./templates', help='the path to the query templates to generate the workload')
+    parser.add_argument('--save-model', action='store_true', help='write the model weights to disk after training is complete')
+    parser.add_argument('--load-model', action='store_true', help='load model weights from disk before training starts')
 
     return parser.parse_args()
 
@@ -270,7 +277,6 @@ if __name__ == '__main__':
     HYPERPARAMETERS
     '''
     EXE_MODE = args.benchmark_mode
-    RUN_BENCHMARKS = args.run_benchmarks
 
     BATCH_SIZE = args.batch_size
     DISCOUNT_RATE = args.discount_rate
@@ -291,12 +297,19 @@ if __name__ == '__main__':
     NUM_QUBITS = args.num_qubits
     IS_QUANTUM = args.quantum
     NUM_SHOTS = args.num_shots
+    GENERATE_QUERIES = args.generate_queries
 
     '''
     ENVIRONMENT
     '''
     profiler = Profiler()
+    generator = WorkloadGenerator(args.qgen_dir, args.template_dir, args.queries_per_template, args.workload_dir, args.scale_factor)
     replicas = get_replicas()
+
+    if GENERATE_QUERIES:
+        generator.create_queries()
+    
+    queries, templates = generator.get_workload()
 
     random.seed(SEED)
     if SEED is not None:
@@ -328,7 +341,6 @@ if __name__ == '__main__':
         name=f'{'cl' if not IS_QUANTUM else 'q' + str(NUM_QUBITS)}-n{len(replicas)}-s{NUM_SHOTS}',
         config={
             'EXE_MODE': EXE_MODE,
-            'RUN_BENCHMARKS': RUN_BENCHMARKS,
             'BATCH_SIZE': BATCH_SIZE,
             'SPACE_BUDGET': SPACE_BUDGET,
             'IS_QUANTUM': IS_QUANTUM,
@@ -362,14 +374,14 @@ if __name__ == '__main__':
         replica.connection()
 
     tic = time.time()
-    p = Preprocessor(profiler, replicas[0], args.max_index_width)
+    p = Preprocessor(profiler, replicas[0], args.max_index_width, queries, templates)
     p.preprocess(SPACE_BUDGET)
 
     # reset from any previous runs
     for replica in replicas:
         replica.drop_all_indexes(p.tables, EXE_MODE)
 
-    router = Router(p.templates, p.tables, replicas, p.candidates, p.cols_to_table, profiler, EXE_MODE)
+    router = Router(p.workload, templates, p.tables, replicas, p.candidates, p.cols_to_table, profiler, EXE_MODE)
 
     gym.register(
         id='gymnasium_env/IndexSelectionEnv',
@@ -389,7 +401,11 @@ if __name__ == '__main__':
     else:
         print(f'{n_actions} actions')
 
-    policy_net, target_net = create_nets(NUM_QUBITS, IS_QUANTUM, n_observations, n_actions, QNN_OUTPUT, NUM_SHOTS, device)
+    if args.load_model:
+        policy_net = torch.load('./policy.pt')
+        target_net = torch.load('./target.pt')
+    else:
+        policy_net, target_net = create_nets(NUM_QUBITS, IS_QUANTUM, n_observations, n_actions, QNN_OUTPUT, NUM_SHOTS, device)
     target_net.load_state_dict(policy_net.state_dict())
 
     optimizer = optim.AdamW(policy_net.parameters(), lr=LEARNING_RATE, amsgrad=True)
@@ -397,6 +413,10 @@ if __name__ == '__main__':
 
     config = learn(router)
     toc = time.time()
+
+    if args.save_model:
+        torch.save(policy_net, './policy.pt')
+        torch.save(target_net, './target.pt')
 
     print('Complete')
     plot_durations(show_result=True)
@@ -449,18 +469,5 @@ if __name__ == '__main__':
     wandb.summary['routing_table'] = router.routes
     wandb.summary['profiling_results'] = profiler.times()
     wandb.summary['recommendation_time'] = toc - tic
-
-    if RUN_BENCHMARKS:
-        # TPC-H benchmark
-        from tpcbench import query
-
-        qphh = query.main(
-            replicas,
-            router.routes,
-            router.parse_state_matrix(final_state),
-            scale=args.scale_factor
-        )
-
-        wandb.summary['qphh_size'] = qphh
     
     wandb.finish()
