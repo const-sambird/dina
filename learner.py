@@ -190,9 +190,6 @@ def learn(router: Router):
                 target_net_state_dict[key] = policy_net_state_dict[key]*UPDATE_RATE + target_net_state_dict[key]*(1-UPDATE_RATE)
             target_net.load_state_dict(target_net_state_dict)
 
-            if (i_episode + 1) in args.num_epochs and not (i_episode + 1) == max(args.num_epochs):
-                report_learned_config(get_final_state(router, False))
-
             if done:
                 episode_durations.append(t + 1)
                 wandb.log({
@@ -202,6 +199,10 @@ def learn(router: Router):
                     'reward': this_reward
                 })
                 plot_durations()
+
+                if (i_episode + 1) in args.num_epochs and not (i_episode + 1) == max(args.num_epochs):
+                    report_learned_config(get_final_state(router, False))
+
                 break
 
     if return_state is not None:
