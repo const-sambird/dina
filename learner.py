@@ -147,8 +147,7 @@ def optimize_model():
     optimizer.step()
 
 def learn(router: Router):
-    # this constant is from the original DINA code. i imagine it's pretty arbitrary
-    num_episodes = args.num_epochs
+    num_episodes = max(args.num_epochs)
 
     for i_episode in range(num_episodes):
         opt_times = []
@@ -191,6 +190,9 @@ def learn(router: Router):
                 target_net_state_dict[key] = policy_net_state_dict[key]*UPDATE_RATE + target_net_state_dict[key]*(1-UPDATE_RATE)
             target_net.load_state_dict(target_net_state_dict)
 
+            if (i_episode + 1) in args.num_epochs and not (i_episode + 1) == max(args.num_epochs):
+                report_learned_config(get_final_state(router, False))
+
             if done:
                 episode_durations.append(t + 1)
                 wandb.log({
@@ -205,9 +207,9 @@ def learn(router: Router):
     if return_state is not None:
         state = return_state
 
-    return get_final_state(router)
+    return get_final_state(router, True)
 
-def get_final_state(router: Router):
+def get_final_state(router: Router, should_log: bool):
     print('***** generating final index configuration!')
     state, info = env.reset()
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
@@ -218,12 +220,47 @@ def get_final_state(router: Router):
         done = terminated or truncated
         if done: break
     state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
-    wandb.log({
-        'episodes': t + 1,
-        'workload_cost': sum(router.replica_costs),
-        'reward': reward
-    })
+    if should_log:
+        wandb.log({
+            'episodes': t + 1,
+            'workload_cost': sum(router.replica_costs),
+            'reward': reward
+        })
     return state, info
+
+def report_learned_config(config):
+    final_state = config[0].tolist()[0]
+
+    router.evaluate(final_state)
+    
+    config_output_for_benchmarker = []
+
+    print('LEARNED CONFIGURATION')
+    learned_config = []
+    for idx, replica in enumerate(final_state):
+        this_config = []
+        print('--- replica', idx)
+        print('space:', config[1]['spaces_used'][idx], '/', SPACE_BUDGET)
+        print('indexes:')
+        print(replica)
+        for can_idx, include in enumerate(replica):
+            if include == 1:
+                this_config.append(p.candidates[can_idx])
+                print('-', p.candidates[can_idx])
+                config_output_for_benchmarker.append(f'{idx},' + ','.join(p.candidates[can_idx]))
+        learned_config.append(this_config)
+    print('ROUTEING TABLE')
+    print(router.routes)
+
+    print('=' * 20)
+    print('OUTPUT RECOMMENDATION FOR BENCHMARKING MODULE\n')
+    print('Index configuration:')
+    print(' '.join(config_output_for_benchmarker))
+    print('\nRouteing table:')
+    print(','.join(map(str, router.routes)))
+    print('=' * 20)
+
+    return learned_config, router.routes
 
 def preconfigure_wandb():
     with open("wandb.env") as f:
@@ -239,7 +276,7 @@ def create_arguments():
     parser.add_argument('-n', '--num-qubits', type=int, default=8, help='the number of qubits to use in the quantum neural nets')
     parser.add_argument('-b', '--space-budget', type=int, default=1e9, help='the amount of space on each replica that the indexes are allowed to take (in bytes)')
     parser.add_argument('-s', '--scale-factor', type=int, default=1, help='TPC-H scale factor')
-    parser.add_argument('-e', '--num-epochs', type=int, default=100, help='number of learning episodes')
+    parser.add_argument('-e', '--num-epochs', type=int, nargs='+', default=[100], help='number of learning episodes')
     parser.add_argument('-w', '--max-index-width', type=int, help='maximum number of columns that may form an index')
     parser.add_argument('-m', '--benchmark-mode', type=str, choices=['cost', 'exe'], default='cost', help='benchmark execution mode -- \'cost\' for the cost estimator, \'exe\' for actual execution times')
     parser.add_argument('-o', '--num-shots', type=int, default=1024, help='number of samples to take from the quantum neural network')
@@ -425,44 +462,16 @@ if __name__ == '__main__':
 
     print('Generating routeing table...')
     # router expects the format [ { table: [cols,] } ]
-    parsed_config = []
-    final_state = config[0].tolist()[0]
-
-    router.evaluate(final_state)
+    
+    learned_config, routes = report_learned_config(config)
 
     # close database replica connections
     for replica in replicas:
         replica.close()
-
-    config_output_for_benchmarker = []
-
-    print('LEARNED CONFIGURATION')
-    learned_config = []
-    for idx, replica in enumerate(final_state):
-        this_config = []
-        print('--- replica', idx)
-        print('space:', config[1]['spaces_used'][idx], '/', SPACE_BUDGET)
-        print('indexes:')
-        print(replica)
-        for can_idx, include in enumerate(replica):
-            if include == 1:
-                this_config.append(p.candidates[can_idx])
-                print('-', p.candidates[can_idx])
-                config_output_for_benchmarker.append(f'{idx},' + ','.join(p.candidates[can_idx]))
-        learned_config.append(this_config)
-    print('ROUTEING TABLE')
-    print(router.routes)
+    
     print('PROFILING RESULTS')
     print(profiler.times())
     print('TOTAL EXECUTION TIME: %.2fs' % (toc - tic))
-
-    print('=' * 20)
-    print('OUTPUT RECOMMENDATION FOR BENCHMARKING MODULE\n')
-    print('Index configuration:')
-    print(' '.join(config_output_for_benchmarker))
-    print('\nRouteing table:')
-    print(','.join(map(str, router.routes)))
-    print('=' * 20)
 
     wandb.summary['learned_config'] = learned_config
     wandb.summary['spaces_used'] = config[1]['spaces_used']
