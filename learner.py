@@ -192,11 +192,14 @@ def learn(router: Router):
 
             if done:
                 episode_durations.append(t + 1)
+                eps_threshold = EPS_END + (EPS_START - EPS_END) * \
+                    math.exp(-1. * steps_done / EPS_DECAY)
                 wandb.log({
                     'episodes': t + 1,
                     'mean_opt_time': sum(opt_times)/len(opt_times),
                     'workload_cost': sum(router.replica_costs),
-                    'reward': this_reward
+                    'reward': this_reward,
+                    'epsilon': eps_threshold
                 })
                 plot_durations()
 
