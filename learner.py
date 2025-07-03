@@ -79,6 +79,9 @@ def select_action(state, mask, epsilon = None):
         print(f'exploration ({epsilon} < {eps_threshold})')
         return torch.tensor([[env.action_space.sample(mask=mask)]], device=device, dtype=torch.long)
 
+def compose_obs(state):
+    return np.append(state, obs_metadata)
+
 episode_durations = []
 
 def plot_durations(show_result=False):
@@ -155,13 +158,15 @@ def learn(router: Router):
         return_state = None
         # Initialize the environment and get its state
         state, info = env.reset()
-        state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
+        state = torch.tensor(compose_obs(state), dtype=torch.float32, device=device).unsqueeze(0)
         for t in count():
             action = select_action(state, info['mask'])
             observation, reward, terminated, truncated, info = env.step(action.item())
             this_reward = reward
             reward = torch.tensor([reward], device=device)
             done = terminated or truncated
+            observation = compose_obs(observation)
+            print(observation)
 
             if terminated:
                 next_state = None
@@ -216,6 +221,7 @@ def learn(router: Router):
 def get_final_state(router: Router, should_log: bool):
     print('***** generating final index configuration!')
     state, info = env.reset()
+    state = compose_obs(state)
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
     for t in count():
         # get best action (no exploration)
@@ -418,6 +424,8 @@ if __name__ == '__main__':
     p = Preprocessor(profiler, replicas[0], args.max_index_width, queries, templates)
     p.preprocess(SPACE_BUDGET)
 
+    obs_metadata = np.append(p.workload_matrix, p.access_vector)
+
     # reset from any previous runs
     for replica in replicas:
         replica.drop_all_indexes(p.tables, EXE_MODE)
@@ -428,14 +436,17 @@ if __name__ == '__main__':
         id='gymnasium_env/IndexSelectionEnv',
         entry_point=IndexSelectionEnv
     )
-    env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, profiler=profiler, replicas=replicas, router=router, candidates=p.candidates, tables=p.tables, cols_to_table=p.cols_to_table, templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA, mode = EXE_MODE)
+    env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, profiler=profiler, replicas=replicas,
+                   router=router, candidates=p.candidates, tables=p.tables, cols_to_table=p.cols_to_table,
+                   templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA,
+                   workload_matrix=p.workload_matrix, access_vector=p.access_vector, mode = EXE_MODE)
 
     # Get number of actions from gym action space
     n_actions = env.action_space.n
     # Get the number of state observations
     env.action_space.seed(SEED)
     state, info = env.reset(seed=SEED)
-    n_observations = np.size(state)
+    n_observations = np.size(state) + np.size(obs_metadata)
 
     if IS_QUANTUM:
         print(f'{n_actions} actions, {NUM_QUBITS} qubits (encodes {2**NUM_QUBITS})')

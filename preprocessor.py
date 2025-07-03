@@ -1,5 +1,4 @@
-import pickle
-import psycopg
+import numpy as np
 import re
 from util import extract_columns_from_query, construct_indexes_from_candidate, drop_one, powerset
 from itertools import permutations
@@ -15,6 +14,9 @@ class Preprocessor:
         column names, and index sizes.
         '''
         self.columns = []
+        self.tables = []
+        self.workload_matrix = []
+        self.access_vector = []
         self.workload = queries
         self.template_assignments = templates
         self.profiler = profiler
@@ -33,6 +35,7 @@ class Preprocessor:
         self._read_columns()
         self.profiler.time_out()
         self.get_indexable_columns(self.templates)
+        self.build_access_vector()
 
         print(self.candidates)
 
@@ -40,13 +43,15 @@ class Preprocessor:
         conn = self.database.connection()
         with conn.cursor() as cur:
             cur.execute('SELECT table_name FROM information_schema.tables WHERE table_schema = \'public\';')
-            self.tables = [name[0] for name in cur.fetchall()]
+            for name in cur.fetchall():
+                if 'hypopg' not in name[0]:
+                    self.tables.append(name[0])
             conn.commit()
     
     def _read_columns(self):
         assert len(self.tables) > 0, 'trying to read columns before tables!'
 
-        self.columns = []
+        columns = set()
         self.cols_to_table = {}
 
         QUERY_TEMPLATE = "SELECT * FROM %s LIMIT 0;"
@@ -57,13 +62,17 @@ class Preprocessor:
                 for table in self.tables:
                     cur.execute(QUERY_TEMPLATE % table)
                     for desc in cur.description:
-                        self.columns.append(desc[0])
+                        columns.add(desc[0])
                         self.cols_to_table[desc[0]] = table
                 conn.commit()
         except Exception as err:
             print('got an exception in the database connection')
             print(err)
             conn.rollback()
+        
+        self.columns = sorted(list(columns))
+        self.access_vector = [0 for _ in range(len(self.columns))]
+        self.workload_matrix = np.zeros((len(self.templates), len(self.columns)))
     
     def get_indexable_columns(self, templates):
         self.candidates = {}
@@ -77,11 +86,22 @@ class Preprocessor:
                     if len(index) == 0: continue
                     for permutation in permutations(index):
                         self.candidates[table].add(permutation)
+                for column in columns:
+                    position = self.columns.index(column)
+                    self.workload_matrix[idx][position] = 1
         
         # flatten dict of sets of tuples into a list of tuples
         self.tables = list(self.candidates.keys())
         self.candidates = list(set([x for v in self.candidates.values() for x in v]))
         self.candidates = sorted(self.candidates)
+    
+    def build_access_vector(self):
+        for query in self.workload:
+            matches = extract_columns_from_query(query, self.cols_to_table)
+            for columns in matches.values():
+                for column in columns:
+                    position = self.columns.index(column)
+                    self.access_vector[position] += 1
     
     # Updates query syntax to work in PostgreSQL
     def _update_query_text(self, text: str) -> str:
