@@ -195,7 +195,8 @@ def learn(router: Router):
                     'workload_cost': sum(router.replica_costs),
                     'reward': this_reward,
                     'epsilon': eps_threshold,
-                    'skew': info['skew']
+                    'skew': info['skew'],
+                    'max_overage': max(router.replica_costs) - SPACE_BUDGET
                 })
                 plot_durations()
 
