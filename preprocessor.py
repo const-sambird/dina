@@ -14,6 +14,7 @@ class Preprocessor:
         `database` is the database replica we should use for querying table names,
         column names, and index sizes.
         '''
+        self.tables = []
         self.columns = []
         self.workload = queries
         self.template_assignments = templates

@@ -199,7 +199,8 @@ def learn(router: Router):
                     'mean_opt_time': sum(opt_times)/len(opt_times),
                     'workload_cost': sum(router.replica_costs),
                     'reward': this_reward,
-                    'epsilon': eps_threshold
+                    'epsilon': eps_threshold,
+                    'skew': info['skew']
                 })
                 plot_durations()
 
@@ -228,7 +229,8 @@ def get_final_state(router: Router, should_log: bool):
         wandb.log({
             'episodes': t + 1,
             'workload_cost': sum(router.replica_costs),
-            'reward': reward
+            'reward': reward,
+            'skew': info['skew']
         })
     return state, info
 

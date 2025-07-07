@@ -177,7 +177,7 @@ class IndexSelectionEnv(gym.Env):
 
         self.profiler.time_out()
         self.profiler.time_in('step.reward')
-        reward = self.reward(replica_to_update)
+        reward, workload_reward, skew_reward = self.reward()
         self.profiler.time_out()
         truncated = False
 
@@ -188,6 +188,8 @@ class IndexSelectionEnv(gym.Env):
 
         observation = self._get_obs()
         info = self._get_info()
+
+        info['skew'] = 1 / skew_reward if skew_reward > 0 else 0
 
         print(f'spaces used after this epoch: {self.spaces_used} / {self.space_budget}')
 
@@ -265,7 +267,7 @@ class IndexSelectionEnv(gym.Env):
         self.candidate_sizes[candidate] = computed_size
         return computed_size
 
-    def reward(self, updated_replica: int) -> float:
+    def reward(self) -> tuple[float, float, float]:
         '''
         Computes the reward value for this (state, action) pair. The reward is a combination
         of the *workload* reward, which is a measure of how long we take to actually execute
@@ -279,6 +281,10 @@ class IndexSelectionEnv(gym.Env):
         `(SKEW_FACTOR * skew_reward) + (WORKLOAD_FACTOR * workload_reward)`
 
         For more information about the reward function, see the original DINA paper.
+
+        :returns total_reward: the reward for this step, to be used by the reinforcement learning agent
+        :returns workload_reward: the % improvement of the workload cost over baseline
+        :returns skew_reward: 1 / skew
         '''  
         # recompute the routeing table; updates the replica costs too
         self.profiler.time_out()
@@ -302,7 +308,7 @@ class IndexSelectionEnv(gym.Env):
         print(f'skew reward:        {skew_reward}')
         print(f'total reward:       {total_reward}')
 
-        return total_reward
+        return total_reward, processing_reward, skew_reward
 
     def _skew_reward(self, total_cost, replica_costs):
         num_replicas = len(replica_costs)
