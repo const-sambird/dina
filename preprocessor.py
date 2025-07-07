@@ -40,7 +40,9 @@ class Preprocessor:
         conn = self.database.connection()
         with conn.cursor() as cur:
             cur.execute('SELECT table_name FROM information_schema.tables WHERE table_schema = \'public\';')
-            self.tables = [name[0] for name in cur.fetchall()]
+            for name in cur.fetchall():
+                if 'hypopg' not in name[0]:
+                    self.tables.append(name[0])
             conn.commit()
     
     def _read_columns(self):
