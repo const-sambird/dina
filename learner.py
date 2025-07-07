@@ -55,17 +55,12 @@ def create_nets(n_qubits, quantum, n_observations, n_actions, qnn_output, num_sh
     return policy_net, target_net
 
 
-steps_done = 0
-
-
-def select_action(state, mask, epsilon = None):
+def select_action(state, mask, timestep, epsilon = None):
     #print('mask:', mask)
-    global steps_done
     if epsilon is None:
         epsilon = random.random()
     eps_threshold = EPS_END + (EPS_START - EPS_END) * \
-        math.exp(-1. * steps_done / EPS_DECAY)
-    steps_done += 1
+        math.exp(-1. * timestep / EPS_DECAY)
     if epsilon > eps_threshold:
         print(f'exploitation ({epsilon} > {eps_threshold})')
         with torch.no_grad():
@@ -157,7 +152,7 @@ def learn(router: Router):
         state, info = env.reset()
         state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
         for t in count():
-            action = select_action(state, info['mask'])
+            action = select_action(state, info['mask'], i_episode)
             observation, reward, terminated, truncated, info = env.step(action.item())
             this_reward = reward
             reward = torch.tensor([reward], device=device)
@@ -193,7 +188,7 @@ def learn(router: Router):
             if done:
                 episode_durations.append(t + 1)
                 eps_threshold = EPS_END + (EPS_START - EPS_END) * \
-                    math.exp(-1. * steps_done / EPS_DECAY)
+                    math.exp(-1. * i_episode / EPS_DECAY)
                 wandb.log({
                     'episodes': t + 1,
                     'mean_opt_time': sum(opt_times)/len(opt_times),
@@ -220,7 +215,7 @@ def get_final_state(router: Router, should_log: bool):
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
     for t in count():
         # get best action (no exploration)
-        action = select_action(state, info['mask'], 1)
+        action = select_action(state, info['mask'], 0, 1)
         observation, reward, terminated, truncated, info = env.step(action.item())
         done = terminated or truncated
         if done: break
@@ -294,7 +289,7 @@ def create_arguments():
     parser.add_argument('--discount-rate', type=float, default=0.99, help='the discount rate for the reinforcement learner')
     parser.add_argument('--eps-start', type=float, default=0.9, help='the starting probability of the reinforcement learner exploration rate')
     parser.add_argument('--eps-end', type=float, default=0.05, help='the ending probability of the reinforcement learner exploration rate')
-    parser.add_argument('--eps-decay', type=float, default=1000, help='the rate at which the exploration probability decays')
+    parser.add_argument('--eps-decay', type=float, default=250, help='the rate at which the exploration probability decays')
     parser.add_argument('--update-rate', type=float, default=0.005, help='the rate at which the policy nets are updated')
     parser.add_argument('--learning-rate', type=float, default=0.001, help='the rate at which the q-learner learns')
     parser.add_argument('--replay-buffer', type=int, default=100000, help='the size of the replay buffer')
