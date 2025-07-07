@@ -15,9 +15,7 @@ from router import Router
 SMALLEST_POSSIBLE_INDEX_SIZE = 16384
 
 class IndexSelectionEnv(gym.Env):
-    def __init__(self, profiler: Profiler, replicas: list[Replica], router: Router, candidates,
-                 tables, cols_to_table, templates, queries, space_budget, alpha, beta, workload_matrix,
-                 access_vector, mode = 'cost'):
+    def __init__(self, profiler: Profiler, replicas: list[Replica], router: Router, candidates, tables, cols_to_table, templates, queries, space_budget, alpha, beta, mode = 'cost'):
         '''
         The mode is how DINA evaluates rewards.
         - `cost`: we use PostgreSQL's cost estimator to evaluate the performance of indexes
@@ -46,14 +44,6 @@ class IndexSelectionEnv(gym.Env):
         self.templates = templates
         self.queries = queries
         self.tables = tables
-
-        '''
-        These are constants with respect to the environment (they are created
-        by the preprocessing module), but they are necessary to form a completed
-        observation which will be fed into the neural network. They are concatenated
-        with the state matrix in `_get_obs`.
-        '''
-        self.obs_metadata = np.append(workload_matrix, access_vector)
 
         '''
         The HypoPG what-if optimiser returns oids that represent the virtual indexes. We need to
