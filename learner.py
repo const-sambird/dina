@@ -196,7 +196,7 @@ def learn(router: Router):
                     'reward': this_reward,
                     'epsilon': eps_threshold,
                     'skew': info['skew'],
-                    'max_overage': max(router.replica_costs) - SPACE_BUDGET
+                    'max_overage': (max(info['spaces_used']) - SPACE_BUDGET) / SPACE_BUDGET
                 })
                 plot_durations()
 
@@ -226,7 +226,8 @@ def get_final_state(router: Router, should_log: bool):
             'episodes': t + 1,
             'workload_cost': sum(router.replica_costs),
             'reward': reward,
-            'skew': info['skew']
+            'skew': info['skew'],
+            'max_overage': (max(info['spaces_used']) - SPACE_BUDGET) / SPACE_BUDGET
         })
     return state, info
 
