@@ -378,10 +378,13 @@ if __name__ == '__main__':
         print('found MPS!')
     else:
         print('****** torch did not find CUDA/MPS! *******')
+    
+    budget_gb = SPACE_BUDGET / 1e9
+    maxwidth = 'all' if args.max_index_width is None else args.max_index_width
 
     run = wandb.init(
         project='qdina',
-        name=f'{'cl' if not IS_QUANTUM else 'q' + str(NUM_QUBITS)}-n{len(replicas)}-s{NUM_SHOTS}',
+        name=f'{'cl' if not IS_QUANTUM else 'q' + str(NUM_QUBITS)}-n{len(replicas)}-w{maxwidth}-b{budget_gb:.1f}',
         config={
             'EXE_MODE': EXE_MODE,
             'BATCH_SIZE': BATCH_SIZE,
