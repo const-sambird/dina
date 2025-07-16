@@ -45,10 +45,10 @@ def get_replicas(path = './replicas.csv') -> list[Replica]:
             )
     return replicas
 
-def create_nets(n_qubits, quantum, n_observations, n_actions, qnn_output, num_shots, device) -> tuple[DQN | QuantumDQN]:
+def create_nets(n_qubits, quantum, n_observations, n_actions, qnn_output, num_shots, device, param_layers) -> tuple[DQN | QuantumDQN]:
     if quantum:
-        policy_net = QuantumDQN(n_observations, n_qubits, n_actions, qnn_output=qnn_output, n_shots=num_shots, torch_device=device).to(device)
-        target_net = QuantumDQN(n_observations, n_qubits, n_actions, qnn_output=qnn_output, n_shots=num_shots, torch_device=device).to(device)
+        policy_net = QuantumDQN(n_observations, n_qubits, n_actions, param_layers=param_layers, qnn_output=qnn_output, n_shots=num_shots, torch_device=device).to(device)
+        target_net = QuantumDQN(n_observations, n_qubits, n_actions, param_layers=param_layers, qnn_output=qnn_output, n_shots=num_shots, torch_device=device).to(device)
     else:
         policy_net = DQN(n_observations, n_actions, NN_HIDDEN_LAYERS).to(device)
         target_net = DQN(n_observations, n_actions, NN_HIDDEN_LAYERS).to(device)
@@ -306,6 +306,7 @@ def create_arguments():
     parser.add_argument('--template-dir', type=str, default='./templates', help='the path to the query templates to generate the workload')
     parser.add_argument('--save-model', action='store_true', help='write the model weights to disk after training is complete')
     parser.add_argument('--load-model', action='store_true', help='load model weights from disk before training starts')
+    parser.add_argument('--param-layers', type=int, default=3, help='the number of repetitions of the ansatz setup')
 
     return parser.parse_args()
 
@@ -338,6 +339,7 @@ if __name__ == '__main__':
     IS_QUANTUM = args.quantum
     NUM_SHOTS = args.num_shots
     GENERATE_QUERIES = args.generate_queries
+    NUM_REPETITIONS = args.param_layers
 
     '''
     ENVIRONMENT
@@ -404,7 +406,8 @@ if __name__ == '__main__':
             'QNN_OUTPUT': QNN_OUTPUT,
             'SEED': SEED,
             'NUM_REPLICAS': len(replicas),
-            'NUM_SHOTS': NUM_SHOTS
+            'NUM_SHOTS': NUM_SHOTS,
+            'NUM_REPETITIONS': NUM_REPETITIONS
         },
         mode='disabled' if args.dry_run else 'online'
     )
@@ -448,7 +451,7 @@ if __name__ == '__main__':
         policy_net = torch.load('./policy.pt')
         target_net = torch.load('./target.pt')
     else:
-        policy_net, target_net = create_nets(NUM_QUBITS, IS_QUANTUM, n_observations, n_actions, QNN_OUTPUT, NUM_SHOTS, device)
+        policy_net, target_net = create_nets(NUM_QUBITS, IS_QUANTUM, n_observations, n_actions, QNN_OUTPUT, NUM_SHOTS, device, NUM_REPETITIONS)
     target_net.load_state_dict(policy_net.state_dict())
 
     optimizer = optim.AdamW(policy_net.parameters(), lr=LEARNING_RATE, amsgrad=True)
