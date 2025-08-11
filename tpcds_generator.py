@@ -83,8 +83,10 @@ class TPCDSGenerator(WorkloadGenerator):
                     subprocess.run([f'{self.qgen_path}/dsqgen',
                                     '-SCALE', self.scale_factor,
                                     '-RNGSEED', str(SEED_BASE + j),
-                                    '-TEMPLATE', str(i + 1),
-                                    '-DIALECT', 'netezza'],
+                                    '-TEMPLATE', f'query{i + 1}.tpl',
+                                    '-DIALECT', 'netezza',
+                                    '-DIRECTORY', os.path.normpath(os.path.join(self.qgen_path, '..', 'query_templates')),
+                                    '-FILTER', 'Y'],
                                 cwd=self.qgen_path,
                                 #env=dict(os.environ, DSS_QUERY=f'{self.qgen_path}/queries'),
                                 stdout=outfile)
