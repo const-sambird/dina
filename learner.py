@@ -22,7 +22,8 @@ from preprocessor import Preprocessor
 from profiling import Profiler
 from database import Replica
 from router import Router
-from generator import WorkloadGenerator
+from tpch_generator import TPCHGenerator
+from tpcds_generator import TPCDSGenerator
 
 import wandb
 import os
@@ -196,7 +197,8 @@ def learn(router: Router):
                     'reward': this_reward,
                     'epsilon': eps_threshold,
                     'skew': info['skew'],
-                    'max_overage': (max(info['spaces_used']) - SPACE_BUDGET) / SPACE_BUDGET
+                    'max_overage': (max(info['spaces_used']) - SPACE_BUDGET) / SPACE_BUDGET,
+                    # 'gradient': np.linalg.norm(policy_net.parameters())
                 })
                 plot_durations()
 
@@ -285,6 +287,7 @@ def create_arguments():
     parser.add_argument('-o', '--num-shots', type=int, default=1024, help='number of samples to take from the quantum neural network')
     parser.add_argument('-g', '--generate-queries', action='store_true', help='generate new queries from the templates')
     parser.add_argument('-t', '--queries-per-template', type=int, default=10, help='number of queries per template that are in the workload or should be generated')
+    parser.add_argument('-W', '--workload', type=str, choices=['tpc-h', 'tpc-ds'], default='tpc-h', help='the workload to run (TPC-H, TPC-DS)')
 
     # these ones can probably be left to the defaults
     parser.add_argument('--batch-size', type=int, default=32, help='the batch size to feed into the neural network')
@@ -302,7 +305,6 @@ def create_arguments():
     parser.add_argument('--seed', type=int, default=None, help='the seed for the PRNG used in exploration')
     parser.add_argument('--dry-run', action='store_true', help='do not enable logging to weights & biases for this run')
     parser.add_argument('--workload-dir', type=str, default='./workload', help='the directory where the workload .sql files and template assignment .csv are kept')
-    parser.add_argument('--qgen-dir', type=str, default='./tpc-h/dbgen', help='the dbgen/qgen directory provided by the TPC')
     parser.add_argument('--template-dir', type=str, default='./templates', help='the path to the query templates to generate the workload')
     parser.add_argument('--save-model', action='store_true', help='write the model weights to disk after training is complete')
     parser.add_argument('--load-model', action='store_true', help='load model weights from disk before training starts')
@@ -318,6 +320,7 @@ if __name__ == '__main__':
     HYPERPARAMETERS
     '''
     EXE_MODE = args.benchmark_mode
+    WORKLOAD = args.workload
 
     BATCH_SIZE = args.batch_size
     DISCOUNT_RATE = args.discount_rate
@@ -345,7 +348,12 @@ if __name__ == '__main__':
     ENVIRONMENT
     '''
     profiler = Profiler()
-    generator = WorkloadGenerator(args.qgen_dir, args.template_dir, args.queries_per_template, args.workload_dir, args.scale_factor)
+    if WORKLOAD == 'tpc-h':
+        print('generating TPC-H queries!')
+        generator = TPCHGenerator(args.template_dir, args.queries_per_template, args.workload_dir, args.scale_factor)
+    elif WORKLOAD == 'tpc-ds':
+        print('generating TPC-DS queries!')
+        generator = TPCDSGenerator(args.template_dir, args.queries_per_template, args.workload_dir, args.scale_factor)
     replicas = get_replicas()
 
     if GENERATE_QUERIES:

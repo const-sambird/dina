@@ -3,7 +3,7 @@ from qiskit.circuit import Parameter
 from qiskit.circuit.library import RealAmplitudes, ZZFeatureMap
 from qiskit import QuantumCircuit
 from qiskit_machine_learning.neural_networks import SamplerQNN
-from qiskit.primitives import StatevectorSampler as Sampler
+from qiskit.primitives import Sampler
 from qiskit_machine_learning.connectors import TorchConnector
 
 import torch
@@ -99,8 +99,8 @@ def build_qnn_model(n_inputs: int, n_qubits: int, param_layers: int, n_outputs: 
     ansatz = RealAmplitudes(n_qubits, reps=param_layers)
     circuit.compose(feature_map, inplace=True)
     circuit.compose(ansatz, inplace=True)
-    circuit.draw(output='mpl')
-    sampler = Sampler(default_shots=n_shots)
+    #circuit.draw(output='mpl')
+    sampler = Sampler()
     qnn = SamplerQNN(
         circuit=circuit,
         input_params=feature_map.parameters,
@@ -116,7 +116,8 @@ def build_qnn_model(n_inputs: int, n_qubits: int, param_layers: int, n_outputs: 
 class QNN(nn.Module):
     def __init__(self, n_inputs, n_qubits, param_layers, n_outputs, n_shots):
         super(QNN, self).__init__()
-        self.qnn = TorchConnector(build_qnn_model(n_inputs, n_qubits, param_layers, n_outputs, n_shots))
+        self.sampler_qnn = build_qnn_model(n_inputs, n_qubits, param_layers, n_outputs, n_shots)
+        self.qnn = TorchConnector(self.sampler_qnn)
     
     def forward(self, x):
         return self.qnn(x)
@@ -126,6 +127,7 @@ class AngleEncodedQNN(nn.Module):
         super(AngleEncodedQNN, self).__init__()
         self.encoder = AngleEncoder()
         self.qnn = QNN(n_inputs, n_qubits, param_layers, n_outputs, n_shots)
+        self.sampler_qnn = self.qnn.sampler_qnn
 
     def forward(self, x):
         #x = self.encoder(x)
@@ -136,6 +138,7 @@ class AmplitudeEncodedQNN(nn.Module):
         super(AmplitudeEncodedQNN, self).__init__()
         self.encoder = AmplitudeEncoder()
         self.qnn = QNN(n_inputs, n_qubits, param_layers, n_outputs, n_shots)
+        self.sampler_qnn = self.qnn.sampler_qnn
 
     def forward(self, x):
         x = self.encoder(x)
@@ -151,6 +154,7 @@ class QuantumDQN(nn.Module):
             self.qnn = AngleEncodedQNN(n_inputs, n_qubits, param_layers, n_actions, n_shots)
         else:
             self.qnn = AmplitudeEncodedQNN(n_inputs, n_qubits, param_layers, n_actions, n_shots)
+        self.sampler_qnn = self.qnn.sampler_qnn
         self.flatten = nn.Flatten()
         self.state_encoder = StateEncoder(n_inputs, n_qubits, torch_device)
         self.output_layer = nn.Linear(2**n_qubits, n_actions)
