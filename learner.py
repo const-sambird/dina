@@ -96,9 +96,13 @@ def plot_durations(show_result=False):
 
     plt.pause(0.001)  # pause a bit so that plots are updated
 
+has_gradients = False
+
 def optimize_model():
+    global has_gradients
     if len(memory) < BATCH_SIZE:
         return
+    has_gradients = True
     transitions = memory.sample(BATCH_SIZE)
     # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
     # detailed explanation). This converts batch-array of Transitions
@@ -190,6 +194,10 @@ def learn(router: Router):
                 episode_durations.append(t + 1)
                 eps_threshold = EPS_END + (EPS_START - EPS_END) * \
                     math.exp(-1. * i_episode / EPS_DECAY)
+                if has_gradients:
+                    gradients = policy_net.qnn.qnn.qnn.weight.grad.cpu() \
+                                if IS_QUANTUM \
+                                else policy_net.layers[-1].weight.grad.cpu()
                 wandb.log({
                     'episodes': t + 1,
                     'mean_opt_time': sum(opt_times)/len(opt_times),
@@ -198,7 +206,7 @@ def learn(router: Router):
                     'epsilon': eps_threshold,
                     'skew': info['skew'],
                     'max_overage': (max(info['spaces_used']) - SPACE_BUDGET) / SPACE_BUDGET,
-                    # 'gradient': np.linalg.norm(policy_net.parameters())
+                    'gradient': np.linalg.norm(gradients) if has_gradients else -1
                 })
                 plot_durations()
 
