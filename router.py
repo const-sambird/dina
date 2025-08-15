@@ -4,11 +4,12 @@ import time
 import re
 from database import Replica
 from profiling import Profiler
+from workload_manager import WorkloadManager
 
 class Router:
     def __init__(self, queries: list[str], templates: list[int], tables: list[str],
                  replicas: list[Replica], candidates: tuple[str], cols_to_table: dict,
-                 profiler: Profiler, mode: str):
+                 profiler: Profiler, mode: str, workload_manager: WorkloadManager):
         self.queries = queries
         self.templates = templates
         self.num_templates = len(list(set(templates)))
@@ -19,6 +20,7 @@ class Router:
         self.num_replicas = len(replicas)
         self.profiler = profiler
         self.mode = mode
+        self.workload_manager = workload_manager
         
         self.times = np.zeros((self.num_replicas, self.num_templates), dtype=np.float32)
         self.query_costs = np.full(self.num_templates, float('inf'), dtype=np.float32)
@@ -45,9 +47,10 @@ class Router:
                             creation_string = 'CREATE INDEX candidate_index_%d ON %s (%s)' % (indexes_required, table, ', '.join(columns))
                             cur.execute('SELECT indexrelid FROM hypopg_create_index($$%s$$);' % creation_string)
                     
-                    REGEX = 'cost=([0-9]+\\.[0-9]+)'
+                    queries = self.workload_manager.workload()
+                    templates = self.workload_manager.templates()
 
-                    for idx, query in enumerate(self.queries):
+                    for idx, query in enumerate(queries):
                         #print(f'estimating query {idx + 1} cost of {len(self.queries)}')
                         for statement in query.split(';'):
                             if 'create view' in statement or 'drop view' in statement:
@@ -55,7 +58,7 @@ class Router:
                             elif 'select' in statement:
                                 cur.execute('EXPLAIN (FORMAT JSON) %s' % statement)
                                 if after_timing := cur.fetchone()[0][0]['Plan']['Total Cost']:
-                                    self.times[i_rep][self.templates[idx]] += float(after_timing)
+                                    self.times[i_rep][templates[idx]] += float(after_timing)
                     
                     if configurations is not None:
                         cur.execute('SELECT hypopg_reset();')

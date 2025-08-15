@@ -24,6 +24,7 @@ from database import Replica
 from router import Router
 from tpch_generator import TPCHGenerator
 from tpcds_generator import TPCDSGenerator
+from workload_manager import WorkloadManager
 
 import wandb
 import os
@@ -194,10 +195,14 @@ def learn(router: Router):
                 episode_durations.append(t + 1)
                 eps_threshold = EPS_END + (EPS_START - EPS_END) * \
                     math.exp(-1. * i_episode / EPS_DECAY)
+                
                 if has_gradients:
                     gradients = policy_net.qnn.qnn.qnn.weight.grad.cpu() \
                                 if IS_QUANTUM \
                                 else policy_net.layers[-1].weight.grad.cpu()
+                    mean_grad = torch.mean(torch.abs(gradients)) if has_gradients else -1
+                    norm_grad = np.linalg.norm(gradients)
+
                 wandb.log({
                     'episodes': t + 1,
                     'mean_opt_time': sum(opt_times)/len(opt_times),
@@ -206,7 +211,8 @@ def learn(router: Router):
                     'epsilon': eps_threshold,
                     'skew': info['skew'],
                     'max_overage': (max(info['spaces_used']) - SPACE_BUDGET) / SPACE_BUDGET,
-                    'gradient': np.linalg.norm(gradients) if has_gradients else -1
+                    'gradient_mean': mean_grad if has_gradients else 0,
+                    'gradient_norm': norm_grad if has_gradients else 0
                 })
                 plot_durations()
 
@@ -317,6 +323,10 @@ def create_arguments():
     parser.add_argument('--save-model', action='store_true', help='write the model weights to disk after training is complete')
     parser.add_argument('--load-model', action='store_true', help='load model weights from disk before training starts')
     parser.add_argument('--param-layers', type=int, default=3, help='the number of repetitions of the ansatz setup')
+    parser.add_argument('--train-fraction', type=float, default=0.2, help='what proportion of the workload should be in the training set?')
+
+    parser.add_argument('run_type', type=str, choices=['recommend', 'low_data', 'drift'],
+                        help='what experiment should we run? recommend indexes (normal), low data (limited templates), or workload drift')
 
     return parser.parse_args()
 
@@ -351,6 +361,9 @@ if __name__ == '__main__':
     NUM_SHOTS = args.num_shots
     GENERATE_QUERIES = args.generate_queries
     NUM_REPETITIONS = args.param_layers
+    TRAIN_FRACTION = args.train_fraction
+
+    RUN_TYPE = args.run_type
 
     '''
     ENVIRONMENT
@@ -368,6 +381,7 @@ if __name__ == '__main__':
         generator.create_queries()
     
     queries, templates = generator.get_workload()
+    manager = WorkloadManager(queries, templates, RUN_TYPE, TRAIN_FRACTION)
 
     random.seed(SEED)
     if SEED is not None:
@@ -443,13 +457,16 @@ if __name__ == '__main__':
     for replica in replicas:
         replica.drop_all_indexes(p.tables, EXE_MODE)
 
-    router = Router(p.workload, templates, p.tables, replicas, p.candidates, p.cols_to_table, profiler, EXE_MODE)
+    router = Router(p.workload, templates, p.tables, replicas, p.candidates, p.cols_to_table, profiler, EXE_MODE, manager)
 
     gym.register(
         id='gymnasium_env/IndexSelectionEnv',
         entry_point=IndexSelectionEnv
     )
-    env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, profiler=profiler, replicas=replicas, router=router, candidates=p.candidates, tables=p.tables, cols_to_table=p.cols_to_table, templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA, mode = EXE_MODE)
+    env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, profiler=profiler, replicas=replicas,
+                   router=router, candidates=p.candidates, tables=p.tables, cols_to_table=p.cols_to_table,
+                   templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA,
+                   workload_manager=manager, mode=EXE_MODE)
 
     # Get number of actions from gym action space
     n_actions = env.action_space.n
