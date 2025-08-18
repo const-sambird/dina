@@ -153,6 +153,7 @@ def learn(router: Router):
     for i_episode in range(num_episodes):
         opt_times = []
         print('*** this is episode', i_episode)
+        manager.update_workload()
         return_state = None
         # Initialize the environment and get its state
         state, info = env.reset()
@@ -474,7 +475,7 @@ if __name__ == '__main__':
     env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, profiler=profiler, replicas=replicas,
                    router=router, candidates=p.candidates, tables=p.tables, cols_to_table=p.cols_to_table,
                    templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA,
-                   workload_manager=manager, mode=EXE_MODE)
+                   mode=EXE_MODE)
 
     # Get number of actions from gym action space
     n_actions = env.action_space.n

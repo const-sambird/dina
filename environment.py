@@ -16,7 +16,7 @@ SMALLEST_POSSIBLE_INDEX_SIZE = 16384
 
 class IndexSelectionEnv(gym.Env):
     def __init__(self, profiler: Profiler, replicas: list[Replica], router: Router, candidates,
-                 tables, cols_to_table, templates, queries, space_budget, alpha, beta, workload_manager, mode = 'cost'):
+                 tables, cols_to_table, templates, queries, space_budget, alpha, beta, mode = 'cost'):
         '''
         The mode is how DINA evaluates rewards.
         - `cost`: we use PostgreSQL's cost estimator to evaluate the performance of indexes
@@ -36,7 +36,6 @@ class IndexSelectionEnv(gym.Env):
         self.space_budget = space_budget
         self.alpha = alpha
         self.beta = beta
-        self.workload_manager = workload_manager
 
         self.spaces_used = [0 for i in range(len(replicas))]
         self.candidate_sizes = {}
@@ -140,8 +139,6 @@ class IndexSelectionEnv(gym.Env):
             action = action - (self.action_space.n // 2) # now represents an index into the observation space
         candidate_to_toggle = action % self.num_candidates
         replica_to_update = action // self.num_candidates
-
-        self.workload_manager.update_workload()
 
         if creating:
             self.profiler.time_in('step.compute_size')
