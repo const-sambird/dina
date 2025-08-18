@@ -18,6 +18,8 @@ class WorkloadManager:
         '''
         self._workload = workload
         self._templates = templates
+        self._partial_workload = workload
+        self._partial_templates = templates
         self._full_workload = workload
         self._full_templates = templates
         self._exe_mode = execution_mode
@@ -42,14 +44,17 @@ class WorkloadManager:
             selected_templates.add(template)
             templates.remove(template)
         
-        self._workload = []
-        self._templates = []
+        self._partial_workload = []
+        self._partial_templates = []
 
         for i, query in enumerate(self._full_workload):
             template = self._full_templates[i]
             if template in selected_templates:
-                self._workload.append(query)
-                self._templates.append(template)
+                self._partial_workload.append(query)
+                self._partial_templates.append(template)
+        
+        self._workload = self._partial_workload
+        self._templates = self._partial_templates
     
     def update_workload(self):
         '''
@@ -78,10 +83,18 @@ class WorkloadManager:
         '''
         return self._templates
     
-    def full_workload(self) -> list[str]:
+    def set_to_partial(self):
         '''
-        Returns the full workload used for index candidate generation.
-
-        :returns: the queries in the full workload
+        If we have set the currently active workload/template set to
+        the full workload (ie to generate a routing table), we can
+        reset it back to the partial one without reselecting templates here.
         '''
-        return self._full_workload
+        self._workload = self._partial_workload
+        self._templates = self._partial_templates
+    
+    def set_to_full(self):
+        '''
+        Changes the active workload to the full set, rather than the partial.
+        '''
+        self._workload = self._full_workload
+        self._templates = self._full_templates

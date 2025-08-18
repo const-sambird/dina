@@ -249,9 +249,11 @@ def get_final_state(router: Router, should_log: bool):
 
 def report_learned_config(config):
     final_state = config[0].tolist()[0]
+    manager.set_to_full()
 
     router.evaluate(final_state)
     
+    manager.set_to_partial()
     config_output_for_benchmarker = []
 
     print('LEARNED CONFIGURATION')
