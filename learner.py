@@ -442,7 +442,10 @@ if __name__ == '__main__':
             'SEED': SEED,
             'NUM_REPLICAS': len(replicas),
             'NUM_SHOTS': NUM_SHOTS,
-            'NUM_REPETITIONS': NUM_REPETITIONS
+            'NUM_REPETITIONS': NUM_REPETITIONS,
+            'TRAIN_FRACTION': TRAIN_FRACTION,
+            'WORKLOAD': WORKLOAD,
+            'RUN_TYPE': RUN_TYPE
         },
         mode='disabled' if args.dry_run else 'online'
     )
