@@ -98,3 +98,11 @@ class WorkloadManager:
         '''
         self._workload = self._full_workload
         self._templates = self._full_templates
+    
+    def partial_templates(self):
+        '''
+        Get which templates were used in the training set.
+
+        :returns templates: which template numbers are used
+        '''
+        return sorted(list(set(self._partial_templates)))

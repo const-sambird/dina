@@ -279,6 +279,9 @@ def report_learned_config(config):
     print(' '.join(config_output_for_benchmarker))
     print('\nRouteing table:')
     print(','.join(map(str, router.routes)))
+    if RUN_TYPE == 'low_data':
+        print('\nTraining templates:')
+        print(','.join(map(str, manager.partial_templates())))
     print('=' * 20)
 
     return learned_config, router.routes
