@@ -55,7 +55,7 @@ class TPCDSGenerator(WorkloadGenerator):
                 with open(f'{self.workload_path}/{i + 1}_{j}.sql', 'r') as infile:
                     lines = infile.readlines()
                     flattened = ' '.join(lines[1:])
-                    queries.append(flattened.replace('\n', ' ').replace('\t', ''))
+                    queries.append(flattened.replace('\n', ' ').replace('\t', ' '))
         
         return queries, templates
     
