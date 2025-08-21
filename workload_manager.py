@@ -25,9 +25,6 @@ class WorkloadManager:
         self._exe_mode = execution_mode
         self._fraction = fraction
 
-        if execution_mode == 'low_data':
-            self.select_queries()
-
     def select_queries(self):
         '''
         In the low data and workload drift scenarioes, we need to

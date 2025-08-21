@@ -25,6 +25,7 @@ from router import Router
 from tpch_generator import TPCHGenerator
 from tpcds_generator import TPCDSGenerator
 from workload_manager import WorkloadManager
+from query_loader import load_training_set_queries
 
 import wandb
 import os
@@ -308,6 +309,7 @@ def create_arguments():
     parser.add_argument('-g', '--generate-queries', action='store_true', help='generate new queries from the templates')
     parser.add_argument('-t', '--queries-per-template', type=int, default=10, help='number of queries per template that are in the workload or should be generated')
     parser.add_argument('-W', '--workload', type=str, choices=['tpc-h', 'tpc-ds'], default='tpc-h', help='the workload to run (TPC-H, TPC-DS)')
+    parser.add_argument('-c', '--copy-training-set', action='store_true', help='read queries in from the training set')
 
     # these ones can probably be left to the defaults
     parser.add_argument('--batch-size', type=int, default=32, help='the batch size to feed into the neural network')
@@ -330,6 +332,7 @@ def create_arguments():
     parser.add_argument('--load-model', action='store_true', help='load model weights from disk before training starts')
     parser.add_argument('--param-layers', type=int, default=3, help='the number of repetitions of the ansatz setup')
     parser.add_argument('--train-fraction', type=float, default=0.2, help='what proportion of the workload should be in the training set?')
+    parser.add_argument('--training-set', type=str, default='/proj/qdina-PG0/dina-set/h/train', help='the location of the training set queries')
 
     parser.add_argument('run_type', type=str, choices=['recommend', 'low_data', 'drift'],
                         help='what experiment should we run? recommend indexes (normal), low data (limited templates), or workload drift')
@@ -368,6 +371,8 @@ if __name__ == '__main__':
     GENERATE_QUERIES = args.generate_queries
     NUM_REPETITIONS = args.param_layers
     TRAIN_FRACTION = args.train_fraction
+    USE_TRAINING_SET = args.copy_training_set
+    TRAINING_SET_LOCATION = args.training_set
 
     RUN_TYPE = args.run_type
 
@@ -386,7 +391,10 @@ if __name__ == '__main__':
     if GENERATE_QUERIES:
         generator.create_queries()
     
-    queries, templates = generator.get_workload()
+    if USE_TRAINING_SET:
+        queries, templates = load_training_set_queries(TRAINING_SET_LOCATION, TRAIN_FRACTION)
+    else:
+        queries, templates = generator.get_workload()
     manager = WorkloadManager(queries, templates, RUN_TYPE, TRAIN_FRACTION)
 
     random.seed(SEED)
