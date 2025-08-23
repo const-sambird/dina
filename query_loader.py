@@ -49,7 +49,7 @@ def load_low_data_queries(path: str, queries_per_template: str) -> tuple[list[st
     query_names = [os.path.basename(q) for q in all_queries]
     name_parts = [q.split('_') for q in query_names]
     template_strs = list(set([t[0] for t in name_parts]))
-    query_nums = list(set([int(q[0].strip('.sql')) for q in name_parts]))
+    query_nums = list(set([int(q[1].strip('.sql')) for q in name_parts]))
 
     # next: actually sample
     queries = []
