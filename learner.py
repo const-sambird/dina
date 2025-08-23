@@ -25,7 +25,7 @@ from router import Router
 from tpch_generator import TPCHGenerator
 from tpcds_generator import TPCDSGenerator
 from workload_manager import WorkloadManager
-from query_loader import load_training_set_queries
+from query_loader import load_training_set_queries, load_low_data_queries
 
 import wandb
 import os
@@ -392,7 +392,10 @@ if __name__ == '__main__':
         generator.create_queries()
     
     if USE_TRAINING_SET:
-        queries, templates = load_training_set_queries(TRAINING_SET_LOCATION, TRAIN_FRACTION)
+        if RUN_TYPE == 'low_data':
+            queries, templates = load_low_data_queries(TRAINING_SET_LOCATION, args.queries_per_template)
+        else:
+            queries, templates = load_training_set_queries(TRAINING_SET_LOCATION, TRAIN_FRACTION)
     else:
         queries, templates = generator.get_workload()
     manager = WorkloadManager(queries, templates, RUN_TYPE, TRAIN_FRACTION)

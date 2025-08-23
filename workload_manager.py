@@ -22,6 +22,7 @@ class WorkloadManager:
         self._partial_templates = templates
         self._full_workload = workload
         self._full_templates = templates
+        self._num_full_templates = len(list(set(templates)))
         self._exe_mode = execution_mode
         self._fraction = fraction
 
@@ -79,6 +80,31 @@ class WorkloadManager:
         :returns: the template assignment to each query
         '''
         return self._templates
+    
+    def num_queries(self) -> int:
+        '''
+        Returns the number of queries in the training set.
+
+        :returns: The size of the training set
+        '''
+        return len(self._workload)
+    
+    def num_templates(self) -> int:
+        '''
+        Returns the number of unique query templates used in the
+        training set.
+
+        :returns: the number of templates
+        '''
+        return len(list(set(self._templates)))
+    
+    def num_full_templates(self) -> int:
+        '''
+        Returns the number of unique query templates used in the full workload.
+
+        :returns: the number of templates
+        '''
+        return self._num_full_templates
     
     def set_to_partial(self):
         '''

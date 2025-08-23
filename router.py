@@ -10,9 +10,6 @@ class Router:
     def __init__(self, queries: list[str], templates: list[int], tables: list[str],
                  replicas: list[Replica], candidates: tuple[str], cols_to_table: dict,
                  profiler: Profiler, mode: str, workload_manager: WorkloadManager):
-        self.queries = queries
-        self.templates = templates
-        self.num_templates = len(list(set(templates)))
         self.tables = tables
         self.replicas = replicas
         self.candidates = candidates
@@ -21,11 +18,12 @@ class Router:
         self.profiler = profiler
         self.mode = mode
         self.workload_manager = workload_manager
+        self.num_templates = workload_manager.num_full_templates()
         
         self.times = np.zeros((self.num_replicas, self.num_templates), dtype=np.float32)
-        self.query_costs = np.full(self.num_templates, float('inf'), dtype=np.float32)
-        self.replica_costs = np.full(self.num_replicas, float('inf'), dtype=np.float32)
-        self.routes = [-1 for _ in queries]
+        self.query_costs = np.zeros(self.num_templates, dtype=np.float32)
+        self.replica_costs = np.zeros(self.num_replicas, dtype=np.float32)
+        self.routes = [-1 for _ in range(self.num_templates)]
 
     def _evaluate_cost(self, configurations: list | None):
         try:
@@ -86,13 +84,16 @@ class Router:
                             #print(f'creating index {indexes_required} : {table}')
                             cur.execute('CREATE INDEX candidate_index_%d ON %s (%s);' % (indexes_required, table, ', '.join(columns)))
                     
-                    for idx, query in enumerate(self.queries):
+                    queries = self.workload_manager.workload()
+                    templates = self.workload_manager.templates()
+                    
+                    for idx, query in enumerate(queries):
                         #print(f'testing query {idx + 1} of {len(self.queries)}')
                         tic = time.time()
                         cur.execute(query)
                         toc = time.time()
 
-                        self.times[i_rep][self.templates[idx]] += toc - tic
+                        self.times[i_rep][templates[idx]] += toc - tic
                     
                     if configurations is not None:
                         while indexes_required > 0:
@@ -151,5 +152,12 @@ class Router:
             for template in range(self.num_templates):
                 if self.routes[template] == replica:
                     self.replica_costs[replica] += self.query_costs[template]
+        
+        # if a template isn't present in the training set (it has a cost of zero)
+        # assign it to the least-loaded replica
+        min_replica = np.argmin(self.replica_costs)
+        for i, q_cost in enumerate(self.query_costs):
+            if q_cost == 0:
+                self.routes[i] = min_replica
 
         return self.routes
