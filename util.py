@@ -70,3 +70,43 @@ def drop_one(from_tuple):
     to_drop = randrange(0, len(els))
     del els[to_drop]
     return tuple(els)
+
+def update_query_text(text: str) -> str:
+    '''
+    Updates query text to work in PostgreSQL.
+
+    Taken from https://github.com/hyrise/index_selection_evaluation
+
+    :param text: the text of the query to update
+    :returns text: the corrected version
+    '''
+    text = text.replace(";\nlimit ", " limit ").replace("limit -1", "")
+    text = re.sub(r" ([0-9]+) days\)", r" interval '\1 days')", text)
+    text = add_alias_subquery(text)
+    return text
+
+# PostgreSQL requires an alias for subqueries
+def add_alias_subquery(query_text):
+    text = query_text.lower()
+    positions = []
+    for match in re.finditer(r"((from)|,)[  \n]*\(", text):
+        counter = 1
+        pos = match.span()[1]
+        while counter > 0:
+            char = text[pos]
+            if char == "(":
+                counter += 1
+            elif char == ")":
+                counter -= 1
+            pos += 1
+        next_word = query_text[pos:].lstrip().split(" ")[0].split("\n")[0]
+        if next_word[0] in [")", ","] or next_word in [
+            "limit",
+            "group",
+            "order",
+            "where",
+        ]:
+            positions.append(pos)
+    for pos in sorted(positions, reverse=True):
+        query_text = query_text[:pos] + " as alias123 " + query_text[pos:]
+    return query_text

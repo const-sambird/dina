@@ -24,7 +24,6 @@ class Preprocessor:
 
     def preprocess(self, space_budget):
         self.profiler.time_in('filesystem')
-        self.workload = [self._update_query_text(query) for query in self.workload]
         self.templates = []
         for x in set(self.template_assignments):
             self.templates.append(self.workload[self.template_assignments.index(x)])
@@ -85,44 +84,3 @@ class Preprocessor:
         self.tables = list(self.candidates.keys())
         self.candidates = list(set([x for v in self.candidates.values() for x in v]))
         self.candidates = sorted(self.candidates)
-    
-    # Updates query syntax to work in PostgreSQL
-    def _update_query_text(self, text: str) -> str:
-        '''
-        Updates query text to work in PostgreSQL.
-
-        Taken from https://github.com/hyrise/index_selection_evaluation
-
-        :param text: the text of the query to update
-        :returns text: the corrected version
-        '''
-        text = text.replace(";\nlimit ", " limit ").replace("limit -1", "")
-        text = re.sub(r" ([0-9]+) days\)", r" interval '\1 days')", text)
-        text = self._add_alias_subquery(text)
-        return text
-
-    # PostgreSQL requires an alias for subqueries
-    def _add_alias_subquery(self, query_text):
-        text = query_text.lower()
-        positions = []
-        for match in re.finditer(r"((from)|,)[  \n]*\(", text):
-            counter = 1
-            pos = match.span()[1]
-            while counter > 0:
-                char = text[pos]
-                if char == "(":
-                    counter += 1
-                elif char == ")":
-                    counter -= 1
-                pos += 1
-            next_word = query_text[pos:].lstrip().split(" ")[0].split("\n")[0]
-            if next_word[0] in [")", ","] or next_word in [
-                "limit",
-                "group",
-                "order",
-                "where",
-            ]:
-                positions.append(pos)
-        for pos in sorted(positions, reverse=True):
-            query_text = query_text[:pos] + " as alias123 " + query_text[pos:]
-        return query_text

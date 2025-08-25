@@ -26,6 +26,7 @@ from tpch_generator import TPCHGenerator
 from tpcds_generator import TPCDSGenerator
 from workload_manager import WorkloadManager
 from query_loader import load_training_set_queries, load_low_data_queries
+from util import update_query_text
 
 import wandb
 import os
@@ -242,7 +243,7 @@ def get_final_state(router: Router, should_log: bool):
     if should_log:
         wandb.log({
             'episodes': t + 1,
-            'workload_cost': sum(router.replica_costs),
+            'workload_cost': sum(router.replica_costs) / manager.num_queries(),
             'reward': reward,
             'skew': info['skew'],
             'max_overage': (max(info['spaces_used']) - SPACE_BUDGET) / SPACE_BUDGET
@@ -398,6 +399,8 @@ if __name__ == '__main__':
             queries, templates = load_training_set_queries(TRAINING_SET_LOCATION, TRAIN_FRACTION)
     else:
         queries, templates = generator.get_workload()
+    
+    queries = [update_query_text(query) for query in queries]
     manager = WorkloadManager(queries, templates, RUN_TYPE, TRAIN_FRACTION)
 
     random.seed(SEED)
