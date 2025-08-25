@@ -27,7 +27,7 @@ def load_training_set_queries(path: str, fraction: float) -> tuple[list[str], li
         with open(f'{path}/{selection}', 'r') as infile:
             lines = infile.readlines()
             flattened = ' '.join(lines[1:])
-            queries.append(flattened.replace('\n', ' ').replace('\t', ''))
+            queries.append(flattened.replace('\n', ' ').replace('\t', ' '))
             templates.append(template)
 
     return queries, templates
@@ -67,7 +67,7 @@ def load_low_data_queries(path: str, queries_per_template: str) -> tuple[list[st
             with open(f'{path}/{template}_{query_num}.sql', 'r') as infile:
                 lines = infile.readlines()
             flattened = ' '.join(lines[1:])
-            queries.append(flattened.replace('\n', ' ').replace('\t', ''))
+            queries.append(flattened.replace('\n', ' ').replace('\t', ' '))
             templates.append(int(template) - 1)
     
     return queries, templates
