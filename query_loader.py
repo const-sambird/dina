@@ -28,7 +28,7 @@ def load_training_set_queries(path: str, fraction: float) -> tuple[list[str], li
             lines = infile.readlines()
             flattened = ' '.join(lines[1:])
             queries.append(flattened.replace('\n', ' ').replace('\t', ' '))
-            templates.append(template)
+            templates.append(template - 1)
 
     return queries, templates
 

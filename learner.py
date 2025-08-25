@@ -396,7 +396,7 @@ if __name__ == '__main__':
         if RUN_TYPE == 'low_data':
             queries, templates = load_low_data_queries(TRAINING_SET_LOCATION, args.queries_per_template)
         else:
-            queries, templates = load_training_set_queries(TRAINING_SET_LOCATION, TRAIN_FRACTION)
+            queries, templates = load_training_set_queries(TRAINING_SET_LOCATION, 1)
     else:
         queries, templates = generator.get_workload()
     
