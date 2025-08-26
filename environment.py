@@ -16,7 +16,7 @@ SMALLEST_POSSIBLE_INDEX_SIZE = 16384
 
 class IndexSelectionEnv(gym.Env):
     def __init__(self, profiler: Profiler, replicas: list[Replica], router: Router, candidates,
-                 tables, cols_to_table, templates, queries, space_budget, alpha, beta, mode = 'cost'):
+                 tables, cols_to_table, templates, queries, space_budget, alpha, beta, reset_workload, mode = 'cost'):
         '''
         The mode is how DINA evaluates rewards.
         - `cost`: we use PostgreSQL's cost estimator to evaluate the performance of indexes
@@ -45,6 +45,8 @@ class IndexSelectionEnv(gym.Env):
         self.templates = templates
         self.queries = queries
         self.tables = tables
+        
+        self.should_reset_workload = reset_workload
 
         '''
         The HypoPG what-if optimiser returns oids that represent the virtual indexes. We need to
@@ -106,6 +108,9 @@ class IndexSelectionEnv(gym.Env):
         self.profiler.count = 0
 
         self._drop_all_indexes(self.mode)
+
+        if self.should_reset_workload:
+            self._compute_baseline()
 
         return observation, info
     

@@ -511,7 +511,7 @@ if __name__ == '__main__':
     env = gym.make('gymnasium_env/IndexSelectionEnv', 1000, None, profiler=profiler, replicas=replicas,
                    router=router, candidates=p.candidates, tables=p.tables, cols_to_table=p.cols_to_table,
                    templates=p.templates, queries=p.templates, space_budget=SPACE_BUDGET, alpha=ALPHA, beta=BETA,
-                   mode=EXE_MODE)
+                   reset_workload=RUN_TYPE == 'drift', mode=EXE_MODE)
 
     # Get number of actions from gym action space
     n_actions = env.action_space.n
