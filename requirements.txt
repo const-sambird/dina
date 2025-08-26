@@ -7,6 +7,7 @@ qiskit==1.4.2
 qiskit[visualization]
 qiskit-machine-learning
 qiskit-machine-learning[torch]
+qiskit-algorithms
 
 psycopg2-binary
 mock

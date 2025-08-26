@@ -27,6 +27,7 @@ from tpcds_generator import TPCDSGenerator
 from workload_manager import WorkloadManager
 from query_loader import load_training_set_queries, load_low_data_queries
 from util import update_query_text
+from spsa_opt import SPSAOptimiser
 
 import wandb
 import os
@@ -143,11 +144,30 @@ def optimize_model():
     loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
 
     # Optimize the model
-    optimizer.zero_grad()
-    loss.backward()
-    # In-place gradient clipping
-    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
-    optimizer.step()
+
+    def quantum_closure():
+        quant_optimizer.zero_grad()
+        state_action_values = policy_net(state_batch).gather(1, action_batch)
+        next_state_values = torch.zeros(BATCH_SIZE, device=device)
+        with torch.no_grad():
+            next_state_values[non_final_mask] = target_net(non_final_next_states).max(1).values
+        expected_state_action_values = (next_state_values * DISCOUNT_RATE) + reward_batch
+        loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+        return loss
+
+    if IS_QUANTUM:
+        class_optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
+        class_optimizer.step()
+
+        quant_optimizer.step(quantum_closure)
+    else:
+        optimizer.zero_grad()
+        loss.backward()
+        # In-place gradient clipping
+        torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
+        optimizer.step()
 
 def learn(router: Router):
     num_episodes = max(args.num_epochs)
@@ -333,7 +353,7 @@ def create_arguments():
     parser.add_argument('--load-model', action='store_true', help='load model weights from disk before training starts')
     parser.add_argument('--param-layers', type=int, default=3, help='the number of repetitions of the ansatz setup')
     parser.add_argument('--train-fraction', type=float, default=0.2, help='what proportion of the workload should be in the training set?')
-    parser.add_argument('--training-set', type=str, default='/proj/qdina-PG0/dina-set/h/train', help='the location of the training set queries')
+    parser.add_argument('--training-set', type=str, default='/Users/sam/Documents/Development/dina-set/h/train', help='the location of the training set queries')
 
     parser.add_argument('run_type', type=str, choices=['recommend', 'low_data', 'drift'],
                         help='what experiment should we run? recommend indexes (normal), low data (limited templates), or workload drift')
@@ -416,8 +436,8 @@ if __name__ == '__main__':
             replica.commit()
 
     device = torch.device(
-        "cuda" if torch.cuda.is_available() else
-        "mps" if torch.backends.mps.is_available() else
+        #"cuda" if torch.cuda.is_available() else
+        #"mps" if torch.backends.mps.is_available() else
         "cpu"
     )
 
@@ -510,7 +530,11 @@ if __name__ == '__main__':
         policy_net, target_net = create_nets(NUM_QUBITS, IS_QUANTUM, n_observations, n_actions, QNN_OUTPUT, NUM_SHOTS, device, NUM_REPETITIONS)
     target_net.load_state_dict(policy_net.state_dict())
 
-    optimizer = optim.AdamW(policy_net.parameters(), lr=LEARNING_RATE, amsgrad=True)
+    if IS_QUANTUM:
+        quant_optimizer = SPSAOptimiser(policy_net.torchconn.parameters())
+        class_optimizer = optim.AdamW(policy_net.output_layer.parameters())
+    else:
+        optimizer = optim.AdamW(policy_net.parameters(), lr=LEARNING_RATE, amsgrad=True)
     memory = ReplayMemory(REPLAY_BUFFER_SIZE)
 
     config = learn(router)

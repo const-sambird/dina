@@ -127,6 +127,7 @@ class AngleEncodedQNN(nn.Module):
         super(AngleEncodedQNN, self).__init__()
         self.encoder = AngleEncoder()
         self.qnn = QNN(n_inputs, n_qubits, param_layers, n_outputs, n_shots)
+        self.torchconn = self.qnn.qnn
         self.sampler_qnn = self.qnn.sampler_qnn
 
     def forward(self, x):
@@ -138,6 +139,7 @@ class AmplitudeEncodedQNN(nn.Module):
         super(AmplitudeEncodedQNN, self).__init__()
         self.encoder = AmplitudeEncoder()
         self.qnn = QNN(n_inputs, n_qubits, param_layers, n_outputs, n_shots)
+        self.torchconn = self.qnn.qnn
         self.sampler_qnn = self.qnn.sampler_qnn
 
     def forward(self, x):
@@ -155,6 +157,7 @@ class QuantumDQN(nn.Module):
         else:
             self.qnn = AmplitudeEncodedQNN(n_inputs, n_qubits, param_layers, n_actions, n_shots)
         self.sampler_qnn = self.qnn.sampler_qnn
+        self.torchconn = self.qnn.torchconn
         self.flatten = nn.Flatten()
         self.state_encoder = StateEncoder(n_inputs, n_qubits, torch_device)
         self.output_layer = nn.Linear(2**n_qubits, n_actions)
