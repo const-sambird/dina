@@ -220,13 +220,6 @@ def learn(router: Router):
                 episode_durations.append(t + 1)
                 eps_threshold = EPS_END + (EPS_START - EPS_END) * \
                     math.exp(-1. * i_episode / EPS_DECAY)
-                
-                if has_gradients:
-                    gradients = policy_net.qnn.qnn.qnn.weight.grad.cpu() \
-                                if IS_QUANTUM \
-                                else policy_net.layers[-1].weight.grad.cpu()
-                    mean_grad = torch.mean(torch.abs(gradients)) if has_gradients else -1
-                    norm_grad = np.linalg.norm(gradients)
 
                 wandb.log({
                     'episodes': t + 1,
@@ -235,9 +228,7 @@ def learn(router: Router):
                     'reward': this_reward,
                     'epsilon': eps_threshold,
                     'skew': info['skew'],
-                    'max_overage': (max(info['spaces_used']) - SPACE_BUDGET) / SPACE_BUDGET,
-                    'gradient_mean': mean_grad if has_gradients else 0,
-                    'gradient_norm': norm_grad if has_gradients else 0
+                    'max_overage': (max(info['spaces_used']) - SPACE_BUDGET) / SPACE_BUDGET
                 })
                 plot_durations()
 
