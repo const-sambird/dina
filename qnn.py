@@ -3,7 +3,7 @@ from qiskit.circuit import Parameter
 from qiskit.circuit.library import RealAmplitudes, ZZFeatureMap
 from qiskit import QuantumCircuit
 from qiskit_machine_learning.neural_networks import SamplerQNN
-from qiskit.primitives import StatevectorSampler as Sampler
+from qiskit_aer.primitives import Sampler
 from qiskit_machine_learning.connectors import TorchConnector
 
 import torch
@@ -100,7 +100,7 @@ def build_qnn_model(n_inputs: int, n_qubits: int, param_layers: int, n_outputs: 
     circuit.compose(feature_map, inplace=True)
     circuit.compose(ansatz, inplace=True)
     #circuit.draw(output='mpl')
-    sampler = Sampler(default_shots=n_shots)
+    sampler = Sampler(run_options={"method": "statevector", "shots": n_shots}, backend_options={"max_parallel_experiments": 1})
     qnn = SamplerQNN(
         circuit=circuit,
         input_params=feature_map.parameters,
