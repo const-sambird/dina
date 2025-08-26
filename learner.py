@@ -117,8 +117,8 @@ def optimize_model():
     # (a final state would've been the one after which simulation ended)
     non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
                                         batch.next_state)), device=device, dtype=torch.bool)
-    non_final_next_states = torch.cat([s for s in batch.next_state
-                                                if s is not None])
+    non_final_next_states = [s for s in batch.next_state if s is not None]
+    non_final_next_states = torch.cat(non_final_next_states) if len(non_final_next_states) > 0 else None
     state_batch = torch.cat(batch.state)
     action_batch = torch.cat(batch.action)
     reward_batch = torch.cat(batch.reward)
@@ -135,7 +135,8 @@ def optimize_model():
     # state value or 0 in case the state was final.
     next_state_values = torch.zeros(BATCH_SIZE, device=device)
     with torch.no_grad():
-        next_state_values[non_final_mask] = target_net(non_final_next_states).max(1).values
+        if non_final_next_states is not None:
+            next_state_values[non_final_mask] = target_net(non_final_next_states).max(1).values
     # Compute the expected Q values
     expected_state_action_values = (next_state_values * DISCOUNT_RATE) + reward_batch
 
@@ -150,7 +151,8 @@ def optimize_model():
         state_action_values = policy_net(state_batch).gather(1, action_batch)
         next_state_values = torch.zeros(BATCH_SIZE, device=device)
         with torch.no_grad():
-            next_state_values[non_final_mask] = target_net(non_final_next_states).max(1).values
+            if non_final_next_states is not None:
+                next_state_values[non_final_mask] = target_net(non_final_next_states).max(1).values
         expected_state_action_values = (next_state_values * DISCOUNT_RATE) + reward_batch
         loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
         return loss
@@ -353,7 +355,7 @@ def create_arguments():
     parser.add_argument('--load-model', action='store_true', help='load model weights from disk before training starts')
     parser.add_argument('--param-layers', type=int, default=3, help='the number of repetitions of the ansatz setup')
     parser.add_argument('--train-fraction', type=float, default=0.2, help='what proportion of the workload should be in the training set?')
-    parser.add_argument('--training-set', type=str, default='/Users/sam/Documents/Development/dina-set/h/train', help='the location of the training set queries')
+    parser.add_argument('--training-set', type=str, default='/proj/qdina-PG0/dina-set/h/train', help='the location of the training set queries')
 
     parser.add_argument('run_type', type=str, choices=['recommend', 'low_data', 'drift'],
                         help='what experiment should we run? recommend indexes (normal), low data (limited templates), or workload drift')
@@ -436,8 +438,8 @@ if __name__ == '__main__':
             replica.commit()
 
     device = torch.device(
-        #"cuda" if torch.cuda.is_available() else
-        #"mps" if torch.backends.mps.is_available() else
+        "cuda" if torch.cuda.is_available() else
+        "mps" if torch.backends.mps.is_available() else
         "cpu"
     )
 
