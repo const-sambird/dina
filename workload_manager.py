@@ -22,6 +22,7 @@ class WorkloadManager:
         self._partial_templates = templates
         self._full_workload = workload
         self._full_templates = templates
+        self._selection_weights = [2 for _ in templates]
         self._num_full_templates = len(list(set(templates)))
         self._exe_mode = execution_mode
         self._fraction = fraction
@@ -31,25 +32,17 @@ class WorkloadManager:
         In the low data and workload drift scenarioes, we need to
         select a fraction of the templates to be used in the training set.
         '''
-        templates = list(set(self._full_templates))
-        num_full_templates = len(templates)
-        num_templates = round(num_full_templates * self._fraction)
+        num_templates = round(self._num_full_templates * self._fraction)
 
-        selected_templates = set()
-
-        for _ in range(num_templates):
-            template = random.choice(templates)
-            selected_templates.add(template)
-            templates.remove(template)
+        selected_queries = random.choices(self._full_workload, weights=self._selection_weights, k=num_templates)
         
         self._partial_workload = []
         self._partial_templates = []
 
         for i, query in enumerate(self._full_workload):
-            template = self._full_templates[i]
-            if template in selected_templates:
+            if query in selected_queries:
                 self._partial_workload.append(query)
-                self._partial_templates.append(template)
+                self._partial_templates.append(self._full_templates[i])
         
         self._workload = self._partial_workload
         self._templates = self._partial_templates
@@ -64,6 +57,12 @@ class WorkloadManager:
             return
         
         self.select_queries()
+
+        # update the selection weights for the next episode (cause the workload to drift)
+        queries_per_template = len(self._full_workload) // self._num_full_templates
+        template_to_increase = random.randint(0, self._num_full_templates - 1)
+        for i in range(queries_per_template * template_to_increase, queries_per_template * (template_to_increase + 1)):
+            self._selection_weights[i] += 1
     
     def workload(self) -> list[str]:
         '''

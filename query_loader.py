@@ -17,6 +17,7 @@ def load_training_set_queries(path: str, fraction: float) -> tuple[list[str], li
     n_selected = round(n_queries * fraction)
     query_names = [os.path.basename(q) for q in all_queries]
     selections = random.sample(query_names, n_selected)
+    selections = sorted(selections)
 
     queries = []
     templates = []
