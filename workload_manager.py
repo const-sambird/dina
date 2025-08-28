@@ -23,6 +23,7 @@ class WorkloadManager:
         self._full_workload = workload
         self._full_templates = templates
         self._selection_weights = [2 for _ in templates]
+        self._num_full_queries = len(workload)
         self._num_full_templates = len(list(set(templates)))
         self._exe_mode = execution_mode
         self._fraction = fraction
@@ -32,7 +33,7 @@ class WorkloadManager:
         In the low data and workload drift scenarioes, we need to
         select a fraction of the templates to be used in the training set.
         '''
-        num_templates = round(self._num_full_templates * self._fraction)
+        num_templates = round(self._num_full_queries * self._fraction)
 
         selected_queries = random.choices(self._full_workload, weights=self._selection_weights, k=num_templates)
         
