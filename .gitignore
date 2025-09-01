@@ -9,4 +9,3 @@ results/
 wandb/
 wandb.env
 workload/
-qgen.py

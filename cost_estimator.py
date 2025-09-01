@@ -1,6 +1,5 @@
 import psycopg
 from multiprocessing import Queue
-from database import Replica
 
 class CostEstimator:
     def __init__(self, n_templates: int, connection_string: str, queue: Queue):
