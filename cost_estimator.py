@@ -11,7 +11,6 @@ class CostEstimator:
 
         :param n_templates: the number of unique templates for which to estimate costs
         :param connection_string: the database replica string to open a connection to
-        :param indexes: indexes to simulate for cost estimation purposes
         :param queue: the queue to return estimated costs into
         '''
         self.n_templates = n_templates
