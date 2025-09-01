@@ -2,6 +2,8 @@ import numpy as np
 import psycopg
 import time
 import re
+from multiprocessing import Process, Queue
+from cost_estimator import CostEstimator
 from database import Replica
 from profiling import Profiler
 from workload_manager import WorkloadManager
@@ -25,48 +27,30 @@ class Router:
         self.replica_costs = np.zeros(self.num_replicas, dtype=np.float32)
         self.routes = [-1 for _ in range(self.num_templates)]
 
+        if mode == 'cost':
+            self.cost_queues = [Queue() for _ in replicas]
+            self.cost_estimators = [CostEstimator(workload_manager.num_full_templates(), replicas[i].connection_string(), self.cost_queues[i])
+                                    for i in range(self.num_replicas)]
+
     def _evaluate_cost(self, configurations: list | None):
-        try:
-            for i_rep, replica in enumerate(self.replicas):
-                #print(f'* benchmarking on replica {i_rep + 1} of {len(self.replicas)}')
-                # here, we actually want to open a new connection, so as to not interfere with
-                # the existing virtual indexes in our main replica connection
-                conn = replica.connection()
-                with conn.cursor() as cur:
-                    indexes_required = 0
+        #try:
+        processes = []
+        for i_rep, estimator in enumerate(self.cost_estimators):
+            processes.append(Process(
+                target=estimator.run,
+                args=(
+                    self.workload_manager.workload(),
+                    self.workload_manager.templates(),
+                    [] if configurations is None else configurations[i_rep]
+                )
+            ))
+        [p.start() for p in processes]
+        [p.join() for p in processes]
+        self.times = [q.get() for q in self.cost_queues]
 
-                    if configurations is not None:
-                        cur.execute('SELECT hypopg_reset();')
-                        for config in configurations[i_rep]:
-                            table = config[0]
-                            columns = config[1]
-                            indexes_required += 1
-                            #print(f'creating index {indexes_required} : {table}')
-                            creation_string = 'CREATE INDEX candidate_index_%d ON %s (%s)' % (indexes_required, table, ', '.join(columns))
-                            cur.execute('SELECT indexrelid FROM hypopg_create_index($$%s$$);' % creation_string)
-                    
-                    queries = self.workload_manager.workload()
-                    templates = self.workload_manager.templates()
-
-                    for idx, query in enumerate(queries):
-                        #print(f'estimating query {idx + 1} cost of {len(self.queries)}')
-                        for statement in query.split(';'):
-                            if 'create view' in statement or 'drop view' in statement:
-                                cur.execute(statement)
-                            elif 'select' in statement:
-                                cur.execute('EXPLAIN (FORMAT JSON) %s' % statement)
-                                if after_timing := cur.fetchone()[0][0]['Plan']['Total Cost']:
-                                    self.times[i_rep][templates[idx]] += float(after_timing)
-                    
-                    if configurations is not None:
-                        cur.execute('SELECT hypopg_reset();')
-                    
-                    conn.commit()
-
-        except Exception as err:
-            print('got an exception in the database connection')
-            print(err)
-            conn.rollback()
+        #except Exception as err:
+        #    print('got an exception in the database connection')
+        #    print(err)
     
     def _evaluate_exe(self, configurations):
         try:
