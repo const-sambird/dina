@@ -30,13 +30,13 @@ class CostEstimator:
         with conn.cursor() as cur:
             indexes_required = 0
 
-            if indexes is not None and len(indexes) > 0:
-                print(indexes)
-                table = indexes[0]
-                columns = indexes[1]
-                indexes_required += 1
-                creation_string = 'CREATE INDEX candidate_index_%d ON %s (%s)' % (indexes_required, table, ', '.join(columns))
-                cur.execute('SELECT indexrelid FROM hypopg_create_index($$%s$$);' % creation_string)
+            if indexes is not None:
+                for index in indexes:
+                    table = index[0]
+                    columns = index[1]
+                    indexes_required += 1
+                    creation_string = 'CREATE INDEX candidate_index_%d ON %s (%s)' % (indexes_required, table, ', '.join(columns))
+                    cur.execute('SELECT indexrelid FROM hypopg_create_index($$%s$$);' % creation_string)
 
             for idx, query in enumerate(queries):
                 for statement in query.split(';'):
