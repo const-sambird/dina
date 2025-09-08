@@ -224,7 +224,7 @@ def learn(router: Router):
                 wandb.log({
                     'episodes': t + 1,
                     'mean_opt_time': sum(opt_times)/len(opt_times),
-                    'workload_cost': sum(router.replica_costs),
+                    'workload_cost': sum(router.replica_costs) / manager.num_queries(),
                     'reward': this_reward,
                     'epsilon': eps_threshold,
                     'skew': info['skew'],
