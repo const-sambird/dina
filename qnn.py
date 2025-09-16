@@ -1,7 +1,7 @@
 from qiskit_machine_learning.utils import algorithm_globals
-from qiskit.circuit import Parameter
-from qiskit.circuit.library import RealAmplitudes, ZZFeatureMap
-from qiskit import QuantumCircuit
+from qiskit.circuit import Parameter, Gate
+from qiskit.circuit.library import RealAmplitudes, ZZFeatureMap, XGate, RXGate
+from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
 from qiskit_machine_learning.neural_networks import SamplerQNN
 from qiskit_aer.primitives import Sampler
 from qiskit_machine_learning.connectors import TorchConnector
@@ -12,85 +12,167 @@ import torch.nn.functional as F
 
 from encoding import AngleEncoder, AmplitudeEncoder, StateEncoder
 
-def build_angle_encoded_circuit(n_inputs: int, param_layers: int) -> tuple[QuantumCircuit, list[Parameter], list[Parameter]]:
+def crx(param_name: str = 'crx_gate') -> Gate:
     '''
-    Creates a `QuantumCircuit` that accepts some angle-encoded state as input, and provides
-    an ansatz with (`n_inputs` * `param_layers`) trainable weights. If `param_layers` is 1,
-    the ansatz will be composed of R_y gates; if it is 2, the second pass will be composed of
-    R_z gates. The resulting qubits will be entangled with circular C-Z gates.
+    Returns a controlled-RX gate. This gate has 1 control qubit.
 
-    Returns a tuple:
-    - `qc`, the composed quantum circuit
-    - `input_params`, an `n_inputs` list of input parameters
-    - `trainable_params`, an `n_inputs` * `param_layers` list of trainable parameters
-
-    The parameters follow the naming schema `input_{i}` for each input and `weight_{gate}_{i}`
-    for each trainable parameter, where i is the qubit index (0...`n_inputs` - 1) and gate is
-    one of `ry` (for the first trainable parameter) or `rz` (for the second).
+    :param param_name: the name for the trainable parameter
+    :returns gate:     the controlled RX gate
+    :returns param:    the trainable parameter theta
     '''
-    assert n_inputs > 0, 'we need some positive number of qubits!'
-    assert param_layers >= 0 and param_layers <= 2, 'we may have trainable parameters on one or both of r_y or r_z gates!'
-    qc = QuantumCircuit(n_inputs)
-    input_params = []
-    trainable_params = []
-    # input parameters (encoded state)
-    for i in range(n_inputs):
-        input_params.append(Parameter(f'input_{i}'))
-        qc.rx(input_params[i], i)
-    # trainable parameters (weights)
-    if param_layers >= 1:
-        for i in range(n_inputs):
-            weight = Parameter(f'weight_ry_{i}')
-            trainable_params.append(weight)
-            qc.ry(weight, i)
-            if param_layers == 2:
-                weight = Parameter(f'weight_rz_{i}')
-                trainable_params.append(weight)
-                qc.rz(weight, i)
-    # entanglement step
-    for i in range(n_inputs):
-        qc.cz(i, (i + 1) % n_inputs)
+    param = Parameter(param_name)
+    return RXGate(param).control(1)
+
+def get_twolocal_circuit(n_qubits, n_reps):
+    return RealAmplitudes(n_qubits, reps=n_reps)
+
+def get_bqn_circuit(n_qubits: int, n_data_qubits: int, n_ancilla_qubits: int,
+                    n_data_reps: int, n_ancilla_reps: int) -> QuantumCircuit:
+    '''
+    Builds a Bayesian Quantum Circuit with N qubits in the data register and
+    M qubits in the ancilla. Returns a constructed `QuantumCircuit`.
+
+    There are restrictions placed on the circuit:
+    - The number of data bits N must be large enough to encode the action space;
+      that is, `|A| <= 2^N` (this is a constant requirement, but care must be taken
+      to ensure the additional ancilla bits do not cause us to exceed our qubit budget)
+    - There must be at least one ancillary qubit. If no ancilla is used, this is not a BQN
+      and the standard two-local/RealAmplitudes ansatz should be used instead
+    - One qubit (not counted as a data or ancillary qubit) will be used as the control flag
+
+    For further information about BQNs, consult:
+        Du et al. (2020) "Expressive power of parameterized quantum circuits".
+        https://doi.org/10.1103/PhysRevResearch.2.033125
+
+    :param n_qubits:         the total number of qubits in the system
+    :param n_data_qubits:    the number of qubits to be used in the data register
+    :param n_ancilla_qubits: the number of qubits to be used for the ancilla, not including the additional flag qubit
+    :param n_data_reps:      the number of repetitions of the controlled U-blocks to include
+    :param n_ancilla_reps:   the number of trainable parameters/entanglement steps to include in the ancilla
+    :returns qc:       the constructed quantum circuit
+    '''
+    assert n_qubits == (n_data_qubits + n_ancilla_qubits + 1), \
+            'the number of qubits assigned for data/ancilla/flag do not match the circuit dimension'
     
-    return qc, input_params, trainable_params
+    data_reg = QuantumRegister(n_data_qubits, 'data')
+    # include flag qubit in the ancilla register
+    ancilla_reg = QuantumRegister(n_ancilla_qubits + 1, 'ancilla')
+    output_reg = ClassicalRegister(n_data_qubits, 'output')
 
-def construct_ansatz(n_inputs: int, gates: list[str], n_times: int) -> tuple[QuantumCircuit, list[Parameter]]:
-    trainable_params = []
-    ansatz = QuantumCircuit(n_inputs)
-    qc_gate = gate_selector(ansatz)
+    qc = QuantumCircuit(data_reg, ancilla_reg, output_reg)
+    ancilla = get_bqn_ancilla(n_ancilla_qubits, n_ancilla_reps)
+    ANCILLA_QUBITS = list(range(n_data_qubits, n_data_qubits + n_ancilla_qubits))
+    qc.compose(ancilla, ANCILLA_QUBITS, inplace=True)
 
-    for i_layer in range(n_times):
-        for i_gate, gate in enumerate(gates):
-            assert gate[0] in ['r', 'c'], f'unknown gate type {gate}, expected one of the form [r,c][x,y,z]'
-            assert gate[1] in ['x', 'y', 'z'], f'unknown gate type {gate}, expected one of the form [r,c][x,y,z]'
-            assert len(gate) == 2, f'unknown gate type {gate}, expected one of the form [r,c][x,y,z]'
-            for qubit in range(n_inputs):
-                if gate[0] == 'c':
-                    qc_gate[gate](qubit, (qubit + 1) % n_inputs)
-                elif gate[0] == 'r':
-                    weight = Parameter(f'weight_{i_layer}_{gate}_{qubit}')
-                    trainable_params.append(weight)
-                    qc_gate[gate](weight, qubit)
+    for i in range(n_data_reps):
+        circuit = get_one_bqn_repetition(n_data_qubits, n_ancilla_qubits, i)
+        qc.compose(circuit, inplace=True)
     
-    return ansatz
+    qc.barrier()
+    qc.measure(data_reg, output_reg)
 
-def gate_selector(qc: QuantumCircuit) -> dict[str, any]:
-    return {
-        'rx': qc.rx,
-        'ry': qc.ry,
-        'rz': qc.rz,
-        'cx': qc.cx,
-        'cy': qc.cy,
-        'cz': qc.cz
-    }
+    return qc
 
-def interpreter(n_actions):
-    def threshold(x):
-        if x >= n_actions: return 0
-        return x
-    return threshold
+def get_one_bqn_repetition(n_data_qubits: int, n_ancilla_qubits: int, block: int) -> QuantumCircuit:
+    '''
+    Gets a single repetition of U-blocks controlled by the ancilla state.
 
-def identity(x):
-    return x
+    :param n_data_qubits:    the number of qubits in the data register
+    :param n_ancilla_qubits: the number of qubits used for the ancilla (excluding the flag qubit)
+    :param block:            which block is this?
+    :returns qc: a single repetition of the controlled data parameter blocks
+    '''
+    FMT_STRING = f'0{n_ancilla_qubits}b'
+    ANCILLA_QUBITS = list(range(n_data_qubits, n_data_qubits + n_ancilla_qubits + 1))
+
+    qc = QuantumCircuit(n_data_qubits + n_ancilla_qubits + 1)
+
+    for i in range(2**n_ancilla_qubits):
+        selector, inverter = get_ancilla_selector(format(i, FMT_STRING), n_ancilla_qubits)
+        block_circuit = get_one_bqn_block(n_data_qubits, n_ancilla_qubits, block, i)
+        
+        qc.compose(selector, ANCILLA_QUBITS, inplace=True)
+        qc.compose(block_circuit, inplace=True)
+        qc.compose(inverter, ANCILLA_QUBITS, inplace=True)
+    
+    return qc
+
+def get_one_bqn_block(n_data_qubits: int, n_ancilla_qubits: int, block: int, rep: int) -> QuantumCircuit:
+    '''
+    Gets a single U-block for the BQN.
+
+    :param n_data_qubits:    the number of qubits in the data register
+    :param n_ancilla_qubits: the number of qubits in the ancillary register
+    :param block:            the index of this block
+    :param rep:              the index of this repetition
+    :returns qc: the block's quantum circuit
+    '''
+    FLAG_BIT = n_data_qubits + n_ancilla_qubits
+
+    qc = QuantumCircuit(n_data_qubits + n_ancilla_qubits + 1)
+
+    for i in range(n_data_qubits):
+        qc.append(crx(f'data_{block}_{rep}_{i}'), [FLAG_BIT, i])
+    for i in range(n_data_qubits):
+        qc.ccx(i, FLAG_BIT, (i + 1) % n_data_qubits)
+    
+    return qc
+
+def get_bqn_ancilla(n_ancilla_qubits: int, n_ancilla_reps: int) -> QuantumCircuit:
+    '''
+    Repeats a standard U-block on the ancillary qubits a given number of times.
+    The unitary gates in these blocks are not controlled, unlike the gates operating on
+    the data qubits.
+
+    :param n_ancilla_qubits: the number of qubits in the ancilla, not including the flag qubit
+    :param n_ancilla_reps:   the number of blocks to apply
+    :returns ancilla:        the circuit on the ancilla bits to estimate the posterior distribution
+    '''
+    qc = QuantumCircuit(n_ancilla_qubits)
+
+    for i in range(n_ancilla_reps):
+        for j in range(n_ancilla_qubits):
+            weight = Parameter(f'ancilla_{i}_{j}')
+            qc.rx(weight, j)
+        if n_ancilla_qubits > 1:
+            for j in range(n_ancilla_qubits):
+                qc.cx(j, (j + 1) % n_ancilla_qubits)
+    
+    return qc
+
+def get_ancilla_selector(bitstring: str, n_ancilla_qubits: int) -> tuple[QuantumCircuit, QuantumCircuit]:
+    '''
+    Creates a set of gates to conditionally apply U(theta_lambda_k) to the set of data qubits.
+    The selection circuit will set the flag qubit iff the ancilla is equal to the bitstring.
+    The inversion circuit will restore the flag qubit to the prior state.
+
+    Note that the flag qubit is not included in the count of `n_ancilla_qubits`.
+
+    :param bitstring:        the ancilla value we should be testing for. Apply the U-block only if the bitstring
+                             is equal to the ancilla value.
+    :param n_ancilla_qubits: number of qubits in the ancilla
+    :returns selection_circuit: the circuit to compose before the U-block, to set the flag bit
+    :returns inversion_circuit: the circuit to compose after the U-block, to reset the flag bit
+    '''
+    qr = QuantumRegister(n_ancilla_qubits + 1)
+    bitstring_circuit = QuantumCircuit(qr)
+    selection_circuit = QuantumCircuit(qr)
+    inversion_circuit = QuantumCircuit(qr)
+    bits = [True if b == '1' else False for b in bitstring]
+
+    for idx, bit in enumerate(bits):
+        if bit:
+            bitstring_circuit.x(idx)
+    
+    flag_set = XGate().control(n_ancilla_qubits)
+
+    selection_circuit.compose(bitstring_circuit, inplace=True)
+    selection_circuit.append(flag_set, qr)
+
+    inversion_circuit.append(flag_set, qr)
+    inversion_circuit.compose(bitstring_circuit, inplace=True)
+
+    return selection_circuit, inversion_circuit
 
 def build_qnn_model(n_inputs: int, n_qubits: int, param_layers: int, n_outputs: int, n_shots: int) -> SamplerQNN:
     # circuit, inputs, weights = build_angle_encoded_circuit(n_inputs, param_layers)
@@ -106,27 +188,25 @@ def build_qnn_model(n_inputs: int, n_qubits: int, param_layers: int, n_outputs: 
         input_params=feature_map.parameters,
         weight_params=ansatz.parameters,
         sampler=sampler,
-        input_gradients=True,
-        #output_shape=n_outputs,
-        #interpret=identity
+        input_gradients=True
     )
 
     return qnn
 
 class QNN(nn.Module):
-    def __init__(self, n_inputs, n_qubits, param_layers, n_outputs, n_shots):
+    def __init__(self, n_qubits, param_layers, n_shots):
         super(QNN, self).__init__()
-        self.sampler_qnn = build_qnn_model(n_inputs, n_qubits, param_layers, n_outputs, n_shots)
+        self.sampler_qnn = build_qnn_model(n_qubits, param_layers, n_shots)
         self.qnn = TorchConnector(self.sampler_qnn)
     
     def forward(self, x):
         return self.qnn(x)
     
 class AngleEncodedQNN(nn.Module):
-    def __init__(self, n_inputs, n_qubits, param_layers, n_outputs, n_shots):
+    def __init__(self, n_qubits, param_layers, n_shots):
         super(AngleEncodedQNN, self).__init__()
         self.encoder = AngleEncoder()
-        self.qnn = QNN(n_inputs, n_qubits, param_layers, n_outputs, n_shots)
+        self.qnn = QNN(n_qubits, param_layers, n_shots)
         self.torchconn = self.qnn.qnn
         self.sampler_qnn = self.qnn.sampler_qnn
 
@@ -135,10 +215,10 @@ class AngleEncodedQNN(nn.Module):
         return self.qnn(x)
     
 class AmplitudeEncodedQNN(nn.Module):
-    def __init__(self, n_inputs, n_qubits, param_layers, n_outputs, n_shots):
+    def __init__(self, n_qubits, param_layers, n_shots):
         super(AmplitudeEncodedQNN, self).__init__()
         self.encoder = AmplitudeEncoder()
-        self.qnn = QNN(n_inputs, n_qubits, param_layers, n_outputs, n_shots)
+        self.qnn = QNN(n_qubits, param_layers, n_shots)
         self.torchconn = self.qnn.qnn
         self.sampler_qnn = self.qnn.sampler_qnn
 
@@ -153,9 +233,9 @@ class QuantumDQN(nn.Module):
         assert qnn_output == 'trunc' or qnn_output == 'layer', 'must specify how to rectify the output dimension!'
         super(QuantumDQN, self).__init__()
         if encoding == 'angle':
-            self.qnn = AngleEncodedQNN(n_inputs, n_qubits, param_layers, n_actions, n_shots)
+            self.qnn = AngleEncodedQNN(n_qubits, param_layers, n_shots)
         else:
-            self.qnn = AmplitudeEncodedQNN(n_inputs, n_qubits, param_layers, n_actions, n_shots)
+            self.qnn = AmplitudeEncodedQNN(n_qubits, param_layers, n_shots)
         self.sampler_qnn = self.qnn.sampler_qnn
         self.torchconn = self.qnn.torchconn
         self.flatten = nn.Flatten()
