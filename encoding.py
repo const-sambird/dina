@@ -2,6 +2,38 @@ import torch
 from torch import nn
 import math
 
+class AngleStateEncoder(nn.Module):
+    '''
+    Given a state matrix, reduce the flattened state vector into an array of integers
+    that represents the presence of some candidates and then encode that into
+    angles of rotation around the Bloch sphere.
+
+    Applies StateEncoder, then AngleEncoder.
+    '''
+    def __init__(self, num_statematrix_elements, num_qubits, torch_device):
+        super(AngleStateEncoder, self).__init__()
+        self.flatten = nn.Flatten()
+        self.state_encoder = StateEncoder(num_statematrix_elements, num_qubits, torch_device)
+        self.angle_encoder = AngleEncoder()
+    
+    def forward(self, x):
+        x = self.flatten(x)
+        x = self.state_encoder(x)
+        x = self.angle_encoder(x)
+        return x
+    
+class BasisEncoder(nn.Module):
+    '''
+    Given a state matrix, flatten it and encode the resulting vector as the
+    basis states |0> and |1> in the qubits.
+    '''
+    def __init__(self):
+        super(BasisEncoder, self).__init__()
+        self.flatten = nn.Flatten()
+    
+    def forward(self, x):
+        return self.flatten(x)
+
 class StateEncoder(nn.Module):
     '''
     For use in quantum encoding: collapse the state matrix into a vector

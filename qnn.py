@@ -1,4 +1,3 @@
-from qiskit_machine_learning.utils import algorithm_globals
 from qiskit.circuit import Parameter, Gate
 from qiskit.circuit.library import RealAmplitudes, ZZFeatureMap, XGate, RXGate
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
@@ -10,7 +9,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from encoding import AngleEncoder, AmplitudeEncoder, StateEncoder
+from encoding import AngleStateEncoder, BasisEncoder
 
 def crx(param_name: str = 'crx_gate') -> Gate:
     '''
@@ -174,81 +173,84 @@ def get_ancilla_selector(bitstring: str, n_ancilla_qubits: int) -> tuple[Quantum
 
     return selection_circuit, inversion_circuit
 
-def build_qnn_model(n_inputs: int, n_qubits: int, param_layers: int, n_outputs: int, n_shots: int) -> SamplerQNN:
-    # circuit, inputs, weights = build_angle_encoded_circuit(n_inputs, param_layers)
-    circuit = QuantumCircuit(n_qubits)
-    feature_map = ZZFeatureMap(n_qubits)
-    ansatz = RealAmplitudes(n_qubits, reps=param_layers)
-    circuit.compose(feature_map, inplace=True)
-    circuit.compose(ansatz, inplace=True)
-    #circuit.draw(output='mpl')
-    sampler = Sampler(run_options={"method": "statevector", "shots": n_shots}, backend_options={"max_parallel_experiments": 1})
-    qnn = SamplerQNN(
-        circuit=circuit,
-        input_params=feature_map.parameters,
-        weight_params=ansatz.parameters,
-        sampler=sampler,
-        input_gradients=True
-    )
+class TruncateOutputLayer(nn.Module):
+    def __init__(self, n_actions):
+        super(TruncateOutputLayer, self).__init__()
 
-    return qnn
-
-class QNN(nn.Module):
-    def __init__(self, n_qubits, param_layers, n_shots):
-        super(QNN, self).__init__()
-        self.sampler_qnn = build_qnn_model(n_qubits, param_layers, n_shots)
-        self.qnn = TorchConnector(self.sampler_qnn)
+        self.n_actions = n_actions
     
     def forward(self, x):
-        return self.qnn(x)
-    
-class AngleEncodedQNN(nn.Module):
-    def __init__(self, n_qubits, param_layers, n_shots):
-        super(AngleEncodedQNN, self).__init__()
-        self.encoder = AngleEncoder()
-        self.qnn = QNN(n_qubits, param_layers, n_shots)
-        self.torchconn = self.qnn.qnn
-        self.sampler_qnn = self.qnn.sampler_qnn
+        return torch.narrow(x, 1, 0, self.n_actions)
+        
+class QuantumDQN(nn.Module):
+    def __init__(self, n_inputs, n_qubits, n_actions, param_layers = 3,
+                 qnn_type = 'twolocal', n_ancilla_bits = -1, n_ancilla_reps = -1,
+                 encoding = 'angle', qnn_output = 'trunc', n_shots = 1024,
+                 torch_device = 'cpu'):
+        assert qnn_type == 'twolocal' or qnn_type == 'bayes', 'must select one of the following ansätze: twolocal, bayes'
+        assert encoding == 'angle' or encoding == 'basis', 'must specify the encoding method'
+        assert qnn_output == 'trunc' or qnn_output == 'layer', 'must specify how to rectify the output dimension!'
 
-    def forward(self, x):
-        #x = self.encoder(x)
-        return self.qnn(x)
-    
-class AmplitudeEncodedQNN(nn.Module):
-    def __init__(self, n_qubits, param_layers, n_shots):
-        super(AmplitudeEncodedQNN, self).__init__()
-        self.encoder = AmplitudeEncoder()
-        self.qnn = QNN(n_qubits, param_layers, n_shots)
-        self.torchconn = self.qnn.qnn
-        self.sampler_qnn = self.qnn.sampler_qnn
+        super(QuantumDQN, self).__init__()
 
+        n_data_qubits = n_qubits if qnn_type == 'twolocal' else n_qubits - n_ancilla_bits - 1
+
+        '''
+        1 - state encoding
+
+        typically, the state encoding compresses the full state matrix into
+        an array of integers which can be encoded as rotation angles around
+        the bloch sphere (for more information, see encoding.py). alternatively,
+        the state encoding can flatten the state matrix and use basis encoding
+        (at the cost of many more qubits or a much smaller state space).
+        '''
+        if encoding == 'angle':
+            self.encoder = AngleStateEncoder(n_inputs, n_data_qubits, torch_device)
+        else:
+            self.encoder = BasisEncoder()
+
+        '''
+        2 - quantum circuit generation
+        '''
+        feature_map = ZZFeatureMap(n_data_qubits)
+        if qnn_type == 'twolocal':
+            ansatz = get_twolocal_circuit(n_qubits, param_layers)
+        else:
+            assert n_ancilla_bits > 0, 'must specify the number of ancilla qubits!'
+            assert n_ancilla_reps > 0, 'must specify the number of ancilla repetitions!'
+            ansatz = get_bqn_circuit(n_qubits, n_data_qubits, n_ancilla_bits, param_layers, n_ancilla_reps)
+        qc = QuantumCircuit(n_qubits)
+        qc.compose(feature_map, inplace=True)
+        qc.compose(ansatz, inplace=True)
+
+        '''
+        3 - QNN setup
+        '''
+        sampler = Sampler(run_options={"method": "statevector", "shots": n_shots},
+                          backend_options={"max_parallel_experiments": 1})
+        self.sampler_qnn = SamplerQNN(
+            circuit=qc,
+            input_params=feature_map.parameters,
+            weight_params=ansatz.parameters,
+            sampler=sampler,
+            input_gradients=True,
+            output_shape=2**qc.num_clbits,
+            interpret=lambda x: x
+        )
+
+        self.torchconn = TorchConnector(self.sampler_qnn)
+
+        '''
+        4 - output layer
+        '''
+        if qnn_output == 'trunc':
+            self.output_layer = TruncateOutputLayer(n_actions)
+        else:
+            self.output_layer = nn.Linear(2**n_data_qubits, n_actions)
+    
     def forward(self, x):
         x = self.encoder(x)
-        return self.qnn(x)
+        x = self.torchconn(x)
+        x = self.output_layer(x)
 
-class QuantumDQN(nn.Module):
-    def __init__(self, n_inputs, n_qubits, n_actions, param_layers = 3, encoding = 'angle', qnn_output='trunc', n_shots=1024, torch_device='cpu'):
-        assert encoding == 'angle' or encoding == 'amplitude', 'must specify one of amplitude or angle encoding!'
-        assert n_actions <= 2**n_qubits, 'the given number of qubits can\'t encode the action space!'
-        assert qnn_output == 'trunc' or qnn_output == 'layer', 'must specify how to rectify the output dimension!'
-        super(QuantumDQN, self).__init__()
-        if encoding == 'angle':
-            self.qnn = AngleEncodedQNN(n_qubits, param_layers, n_shots)
-        else:
-            self.qnn = AmplitudeEncodedQNN(n_qubits, param_layers, n_shots)
-        self.sampler_qnn = self.qnn.sampler_qnn
-        self.torchconn = self.qnn.torchconn
-        self.flatten = nn.Flatten()
-        self.state_encoder = StateEncoder(n_inputs, n_qubits, torch_device)
-        self.output_layer = nn.Linear(2**n_qubits, n_actions)
-        self.n_actions = n_actions
-        self.qnn_output = qnn_output
-    
-    def forward(self, x):
-        x = self.flatten(x)
-        x = self.state_encoder(x)
-        x = self.qnn(x)
-        if self.qnn_output == 'trunc':
-            return torch.narrow(x, 1, 0, self.n_actions)
-        else:
-            return self.output_layer(x)
+        return x

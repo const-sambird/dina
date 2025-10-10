@@ -50,10 +50,15 @@ def get_replicas(path = './replicas.csv') -> list[Replica]:
             )
     return replicas
 
-def create_nets(n_qubits, quantum, n_observations, n_actions, qnn_output, num_shots, device, param_layers) -> tuple[DQN | QuantumDQN]:
+def create_nets(n_qubits, quantum, n_observations, n_actions, qnn_output, num_shots,
+                device, param_layers, ansatz, encoding, ancilla_qubits, ancilla_reps) -> tuple[DQN | QuantumDQN]:
     if quantum:
-        policy_net = QuantumDQN(n_observations, n_qubits, n_actions, param_layers=param_layers, qnn_output=qnn_output, n_shots=num_shots, torch_device=device).to(device)
-        target_net = QuantumDQN(n_observations, n_qubits, n_actions, param_layers=param_layers, qnn_output=qnn_output, n_shots=num_shots, torch_device=device).to(device)
+        policy_net = QuantumDQN(n_inputs=n_observations, n_qubits=n_qubits, n_actions=n_actions, param_layers=param_layers,
+                                qnn_type=ansatz, n_ancilla_bits=ancilla_qubits, n_ancilla_reps=ancilla_reps, encoding=encoding,
+                                qnn_output=qnn_output, n_shots=num_shots, torch_device=device).to(device)
+        target_net = QuantumDQN(n_inputs=n_observations, n_qubits=n_qubits, n_actions=n_actions, param_layers=param_layers,
+                                qnn_type=ansatz, n_ancilla_bits=ancilla_qubits, n_ancilla_reps=ancilla_reps, encoding=encoding,
+                                qnn_output=qnn_output, n_shots=num_shots, torch_device=device).to(device)
     else:
         policy_net = DQN(n_observations, n_actions, NN_HIDDEN_LAYERS).to(device)
         target_net = DQN(n_observations, n_actions, NN_HIDDEN_LAYERS).to(device)
@@ -319,13 +324,16 @@ def create_arguments():
     parser.add_argument('-e', '--num-epochs', type=int, nargs='+', default=[100], help='number of learning episodes')
     parser.add_argument('-w', '--max-index-width', type=int, help='maximum number of columns that may form an index')
     parser.add_argument('-m', '--benchmark-mode', type=str, choices=['cost', 'exe'], default='cost', help='benchmark execution mode -- \'cost\' for the cost estimator, \'exe\' for actual execution times')
-    parser.add_argument('-o', '--num-shots', type=int, default=1024, help='number of samples to take from the quantum neural network')
     parser.add_argument('-g', '--generate-queries', action='store_true', help='generate new queries from the templates')
     parser.add_argument('-t', '--queries-per-template', type=int, default=10, help='number of queries per template that are in the workload or should be generated')
     parser.add_argument('-W', '--workload', type=str, choices=['tpc-h', 'tpc-ds'], default='tpc-h', help='the workload to run (TPC-H, TPC-DS)')
     parser.add_argument('-c', '--copy-training-set', action='store_true', help='read queries in from the training set')
+    parser.add_argument('-a', '--ansatz', type=str, choices=['twolocal', 'bayes'], default='twolocal')
+    parser.add_argument('-p', '--param-layers', type=int, default=3, help='the number of repetitions of the ansatz setup')
+    parser.add_argument('-E', '--encoding', type=str, choices=['angle', 'basis'], default='angle')
 
     # these ones can probably be left to the defaults
+    parser.add_argument('--num-shots', type=int, default=1024, help='number of samples to take from the quantum neural network')
     parser.add_argument('--batch-size', type=int, default=32, help='the batch size to feed into the neural network')
     parser.add_argument('--discount-rate', type=float, default=0.99, help='the discount rate for the reinforcement learner')
     parser.add_argument('--eps-start', type=float, default=0.9, help='the starting probability of the reinforcement learner exploration rate')
@@ -337,16 +345,18 @@ def create_arguments():
     parser.add_argument('--hidden-layers', type=int, nargs='+', default=[64, 64, 64], help='the hidden layers in the neural network, number of neurons (classical only. ignored for quantum)')
     parser.add_argument('--workload-factor', type=float, default=0.5, help='the weight that the workload time should take in the reward function')
     parser.add_argument('--skew-factor', type=float, default=0.5, help='the weight that the workload skew should take in the reward function')
-    parser.add_argument('--qnn-output', type=str, choices=['trunc', 'layer'], help='how should we map the output probabilities from the QNN to actions? [trunc]ate them to fit or add a classical [layer] (quantum only)')
+    parser.add_argument('--qnn-output', type=str, choices=['trunc', 'layer'], default='layer', help='how should we map the output probabilities from the QNN to actions? [trunc]ate them to fit or add a classical [layer] (quantum only)')
     parser.add_argument('--seed', type=int, default=None, help='the seed for the PRNG used in exploration')
     parser.add_argument('--dry-run', action='store_true', help='do not enable logging to weights & biases for this run')
     parser.add_argument('--workload-dir', type=str, default='./workload', help='the directory where the workload .sql files and template assignment .csv are kept')
     parser.add_argument('--template-dir', type=str, default='./templates', help='the path to the query templates to generate the workload')
     parser.add_argument('--save-model', action='store_true', help='write the model weights to disk after training is complete')
     parser.add_argument('--load-model', action='store_true', help='load model weights from disk before training starts')
-    parser.add_argument('--param-layers', type=int, default=3, help='the number of repetitions of the ansatz setup')
     parser.add_argument('--train-fraction', type=float, default=0.2, help='what proportion of the workload should be in the training set?')
     parser.add_argument('--training-set', type=str, default='/proj/qdina-PG0/dina-set/h/train', help='the location of the training set queries')
+
+    parser.add_argument('--ancilla-qubits', type=int)
+    parser.add_argument('--ancilla-reps', type=int)
 
     parser.add_argument('run_type', type=str, choices=['recommend', 'low_data', 'drift'],
                         help='what experiment should we run? recommend indexes (normal), low data (limited templates), or workload drift')
@@ -473,7 +483,11 @@ if __name__ == '__main__':
             'NUM_REPETITIONS': NUM_REPETITIONS,
             'TRAIN_FRACTION': TRAIN_FRACTION,
             'WORKLOAD': WORKLOAD,
-            'RUN_TYPE': RUN_TYPE
+            'RUN_TYPE': RUN_TYPE,
+            'ANSATZ': args.ansatz,
+            'ANCILLA_QUBITS': args.ancilla_qubits,
+            'ANCILLA_REPS': args.ancilla_reps,
+            'ENCODING': args.encoding
         },
         mode='disabled' if args.dry_run else 'online'
     )
@@ -520,7 +534,7 @@ if __name__ == '__main__':
         policy_net = torch.load('./policy.pt')
         target_net = torch.load('./target.pt')
     else:
-        policy_net, target_net = create_nets(NUM_QUBITS, IS_QUANTUM, n_observations, n_actions, QNN_OUTPUT, NUM_SHOTS, device, NUM_REPETITIONS)
+        policy_net, target_net = create_nets(NUM_QUBITS, IS_QUANTUM, n_observations, n_actions, QNN_OUTPUT, NUM_SHOTS, device, NUM_REPETITIONS, args.ansatz, args.encoding, args.ancilla_qubits, args.ancilla_reps)
     target_net.load_state_dict(policy_net.state_dict())
 
     if IS_QUANTUM:
