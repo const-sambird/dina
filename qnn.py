@@ -23,7 +23,10 @@ def crx(param_name: str = 'crx_gate') -> Gate:
     return RXGate(param).control(1)
 
 def get_twolocal_circuit(n_qubits, n_reps):
-    return RealAmplitudes(n_qubits, reps=n_reps)
+    qc = QuantumCircuit(n_qubits)
+    qc.compose(RealAmplitudes(n_qubits, reps=n_reps), inplace=True)
+    qc.measure_all()
+    return qc
 
 def get_bqn_circuit(n_qubits: int, n_data_qubits: int, n_ancilla_qubits: int,
                     n_data_reps: int, n_ancilla_reps: int) -> QuantumCircuit:
