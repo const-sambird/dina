@@ -15,7 +15,7 @@ from matplotlib import pyplot as plt
 import gymnasium as gym
 
 from environment import IndexSelectionEnv
-from ReplayMemory import ReplayMemory, Transition
+from replay_memory import ReplayMemory, Transition
 from DQN import DQN
 from qnn import QuantumDQN
 from preprocessor import Preprocessor
@@ -124,6 +124,11 @@ def optimize_model():
                                         batch.next_state)), device=device, dtype=torch.bool)
     non_final_next_states = [s for s in batch.next_state if s is not None]
     non_final_next_states = torch.cat(non_final_next_states) if len(non_final_next_states) > 0 else None
+
+    # exclude invalid states for proper masking behaviour
+    non_final_next_masks = [m for (m, s) in zip(batch.next_action_mask, batch.next_state) if s is not None]
+    non_final_next_masks = torch.cat(non_final_next_masks) if len(non_final_next_masks) > 0 else None
+
     state_batch = torch.cat(batch.state)
     action_batch = torch.cat(batch.action)
     reward_batch = torch.cat(batch.reward)
@@ -141,7 +146,10 @@ def optimize_model():
     next_state_values = torch.zeros(BATCH_SIZE, device=device)
     with torch.no_grad():
         if non_final_next_states is not None:
-            next_state_values[non_final_mask] = target_net(non_final_next_states).max(1).values
+            q_next = target_net(non_final_next_states)
+            if non_final_next_masks is not None:
+                q_next = q_next.masked_fill(non_final_next_masks == 0, -1e9)
+            next_state_values[non_final_mask] = q_next.max(1).values
     # Compute the expected Q values
     expected_state_action_values = (next_state_values * DISCOUNT_RATE) + reward_batch
 
@@ -199,9 +207,10 @@ def learn(router: Router):
                 return_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
             else:
                 next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
+            next_mask = torch.tensor(info['mask'], dtype=bool, device=device).unsqueeze(0)
 
             # Store the transition in memory
-            memory.push(state, action, next_state, reward)
+            memory.push(state, action, next_state, reward, next_mask)
 
             # Move to the next state
             state = next_state
