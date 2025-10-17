@@ -1,6 +1,4 @@
-import pickle
-import psycopg
-import re
+import random
 from util import extract_columns_from_query, construct_indexes_from_candidate, drop_one, powerset
 from itertools import permutations
 from profiling import Profiler
@@ -22,7 +20,7 @@ class Preprocessor:
         self.database = database
         self.max_index_width = max_index_width
 
-    def preprocess(self, space_budget):
+    def preprocess(self, space_budget, max_candidates):
         self.profiler.time_in('filesystem')
         self.templates = []
         for x in set(self.template_assignments):
@@ -33,6 +31,9 @@ class Preprocessor:
         self._read_columns()
         self.profiler.time_out()
         self.get_indexable_columns(self.templates)
+        
+        if max_candidates is not None:
+            self.limit_candidate_size(max_candidates)
 
         print(self.candidates)
 
@@ -84,3 +85,6 @@ class Preprocessor:
         self.tables = list(self.candidates.keys())
         self.candidates = list(set([x for v in self.candidates.values() for x in v]))
         self.candidates = sorted(self.candidates)
+    
+    def limit_candidate_size(self, max_candidates):
+        self.candidates = random.sample(self.candidates, max_candidates)

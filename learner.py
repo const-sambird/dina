@@ -363,6 +363,7 @@ def create_arguments():
     parser.add_argument('--load-model', action='store_true', help='load model weights from disk before training starts')
     parser.add_argument('--train-fraction', type=float, default=0.2, help='what proportion of the workload should be in the training set?')
     parser.add_argument('--training-set', type=str, default='/proj/qdina-PG0/dina-set/h/train', help='the location of the training set queries')
+    parser.add_argument('--max-actions', type=int, default=None, help='limit the number of actions to a given value')
 
     parser.add_argument('--ancilla-qubits', type=int)
     parser.add_argument('--ancilla-reps', type=int)
@@ -406,6 +407,7 @@ if __name__ == '__main__':
     TRAIN_FRACTION = args.train_fraction
     USE_TRAINING_SET = args.copy_training_set
     TRAINING_SET_LOCATION = args.training_set
+    MAX_ACTIONS = args.max_actions
 
     RUN_TYPE = args.run_type
 
@@ -510,7 +512,8 @@ if __name__ == '__main__':
 
     tic = time.time()
     p = Preprocessor(profiler, replicas[0], args.max_index_width, queries, templates)
-    p.preprocess(SPACE_BUDGET)
+    MAX_CANDIDATES = MAX_ACTIONS // len(replicas) if MAX_ACTIONS is not None else None
+    p.preprocess(SPACE_BUDGET, MAX_ACTIONS)
 
     # reset from any previous runs
     for replica in replicas:
