@@ -1,5 +1,6 @@
 import random
 from util import extract_columns_from_query, construct_indexes_from_candidate, drop_one, powerset
+from query_loader import load_candidates
 from itertools import permutations
 from profiling import Profiler
 from database import Replica
@@ -20,7 +21,7 @@ class Preprocessor:
         self.database = database
         self.max_index_width = max_index_width
 
-    def preprocess(self, space_budget, max_candidates):
+    def preprocess(self, candidate_path: str | None, max_candidates: int | None):
         self.profiler.time_in('filesystem')
         self.templates = []
         for x in set(self.template_assignments):
@@ -30,7 +31,10 @@ class Preprocessor:
         self._read_tables()
         self._read_columns()
         self.profiler.time_out()
-        self.get_indexable_columns(self.templates)
+        if candidate_path is None:
+            self.get_indexable_columns(self.templates)
+        else:
+            self.candidates = load_candidates(candidate_path)
         
         if max_candidates is not None:
             self.limit_candidate_size(max_candidates)
@@ -87,4 +91,5 @@ class Preprocessor:
         self.candidates = sorted(self.candidates)
     
     def limit_candidate_size(self, max_candidates):
+        if max_candidates >= len(self.candidates): return
         self.candidates = random.sample(self.candidates, max_candidates)

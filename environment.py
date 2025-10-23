@@ -330,7 +330,7 @@ class IndexSelectionEnv(gym.Env):
         
         if skew == 0:
             return 1
-        return 1 / skew
+        return 1 / (1 + skew)
         
     def _construct_index(self, candidate_index: int, replica_index: int):
         '''

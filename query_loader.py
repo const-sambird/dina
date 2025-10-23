@@ -72,3 +72,18 @@ def load_low_data_queries(path: str, queries_per_template: str) -> tuple[list[st
             templates.append(int(template) - 1)
     
     return queries, templates
+
+def load_candidates(path: str) -> list[tuple[str]]:
+    '''
+    If the query candidates are given explicity in a file on disk
+    (as opposed to parsed from the workload), this function reads
+    in those candidates and returns them to the preprocessor.
+    '''
+    candidates = []
+
+    with open(path, 'r') as file:
+        candidates = file.readline()
+        candidates = candidates.split(' ')
+        candidates = [tuple(c.split(',')) for c in candidates]
+
+    return candidates

@@ -9,7 +9,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from encoding import AngleStateEncoder, BasisEncoder
+from encoding import AngleStateEncoder, BasisEncoder, AmplitudeEncoder
 
 def crx(param_name: str = 'crx_gate') -> Gate:
     '''
@@ -209,12 +209,17 @@ class QuantumDQN(nn.Module):
         '''
         if encoding == 'angle':
             self.encoder = AngleStateEncoder(n_inputs, n_data_qubits, torch_device)
-        else:
+        elif encoding == 'basis':
             self.encoder = BasisEncoder()
+        elif encoding == 'amplitude':
+            self.encoder = AmplitudeEncoder()
+        else:
+            raise ValueError('unknown encoding type; not one of angle, basis, or amplitude')
 
         '''
         2 - quantum circuit generation
         '''
+        
         feature_map = ZZFeatureMap(n_data_qubits)
         if qnn_type == 'twolocal':
             ansatz = get_twolocal_circuit(n_qubits, param_layers)

@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torch.nn import functional as F
 import math
 
 class AngleStateEncoder(nn.Module):
@@ -20,6 +21,27 @@ class AngleStateEncoder(nn.Module):
         x = self.flatten(x)
         x = self.state_encoder(x)
         x = self.angle_encoder(x)
+        return x
+    
+class AmplitudeEncoder(nn.Module):
+    '''
+    Given a state matrix, encode the flattened state vector as a series of
+    values that are normalised with the Euclidean norm. 
+    '''
+    def __init__(self):
+        super(AmplitudeEncoder, self).__init__()
+        self.flatten = nn.Flatten()
+    
+    def forward(self, x):
+        x = self.flatten(x)
+        print(x.shape)
+        # amplitude encoding requires a power-of-two tensor length
+        desired_tensor_length = pow(math.ceil(math.log2(x.shape[1])), 2)
+        required_padding = desired_tensor_length - x.shape[1]
+        
+        x = F.pad(x, (0, required_padding), 'constant', 0)
+        print(x.shape)
+        x = F.normalize(x)
         return x
     
 class BasisEncoder(nn.Module):
