@@ -171,10 +171,11 @@ def optimize_model():
         return loss
 
     if IS_QUANTUM:
-        class_optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
-        class_optimizer.step()
+        if QNN_OUTPUT == 'layer':
+            class_optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
+            class_optimizer.step()
 
         quant_optimizer.step(quantum_closure)
     else:
