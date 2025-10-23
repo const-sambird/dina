@@ -34,7 +34,6 @@ class AmplitudeEncoder(nn.Module):
     
     def forward(self, x):
         x = self.flatten(x)
-        print(x.shape)
         # amplitude encoding requires a power-of-two tensor length
         desired_tensor_length = pow(math.ceil(math.log2(x.shape[1])), 2)
         required_padding = desired_tensor_length - x.shape[1]

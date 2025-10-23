@@ -554,7 +554,8 @@ if __name__ == '__main__':
 
     if IS_QUANTUM:
         quant_optimizer = SPSAOptimiser(policy_net.torchconn.parameters())
-        class_optimizer = optim.AdamW(policy_net.output_layer.parameters())
+        if QNN_OUTPUT == 'layer':
+            class_optimizer = optim.AdamW(policy_net.output_layer.parameters())
     else:
         optimizer = optim.AdamW(policy_net.parameters(), lr=LEARNING_RATE, amsgrad=True)
     memory = ReplayMemory(REPLAY_BUFFER_SIZE)
