@@ -525,8 +525,8 @@ if __name__ == '__main__':
 
     tic = time.time()
     p = Preprocessor(profiler, replicas[0], args.max_index_width, queries, templates)
-    MAX_CANDIDATES = MAX_ACTIONS // len(replicas) if MAX_ACTIONS is not None else None
-    p.preprocess(CANDIDATE_PATH, MAX_ACTIONS)
+    MAX_CANDIDATES = MAX_ACTIONS // (2 * len(replicas)) if MAX_ACTIONS is not None else None
+    p.preprocess(CANDIDATE_PATH, MAX_CANDIDATES)
 
     # reset from any previous runs
     for replica in replicas:

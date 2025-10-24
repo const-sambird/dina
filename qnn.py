@@ -261,7 +261,6 @@ class QuantumDQN(nn.Module):
         x = self.torchconn(x)
         # probability amplification
         x = torch.logit(torch.clamp(x, 1e-6, 1-1e-6))
-        print(f'min {x.min().item()}, max {x.max().item()} (action {x.argmax().item()}), mean {x.mean().item()}')
         x = self.output_layer(x)
 
         return x
