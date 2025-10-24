@@ -78,7 +78,9 @@ def select_action(state, mask, timestep, epsilon = None):
             # second column on max result is index of where max element was
             # found, so we pick action with the larger expected reward.
             predictions = policy_net(state).cpu()
-            masked = predictions * mask
+            #plot_bitstrings(predictions)
+            mask = torch.from_numpy(mask)
+            masked = predictions.masked_fill(mask == 0, -1e9)
             return masked.max(1).indices.view(1, 1).to(device=device)
     else:
         print(f'exploration ({epsilon} < {eps_threshold})')
@@ -104,6 +106,14 @@ def plot_durations(show_result=False):
         plt.plot(means.numpy())
 
     plt.pause(0.001)  # pause a bit so that plots are updated
+
+def plot_bitstrings(probabilities):
+    plt.figure(1)
+    plt.clf()
+    plt.xlabel('Action')
+    plt.ylabel('Probability')
+    plt.plot(probabilities.numpy()[0])
+    plt.pause(0.001)
 
 has_gradients = False
 
@@ -245,7 +255,7 @@ def learn(router: Router):
                     'skew': info['skew'],
                     'max_overage': (max(info['spaces_used']) - SPACE_BUDGET) / SPACE_BUDGET
                 })
-                plot_durations()
+                #plot_durations()
 
                 if (i_episode + 1) in args.num_epochs and not (i_episode + 1) == max(args.num_epochs):
                     report_learned_config(get_final_state(router, False))
@@ -568,7 +578,7 @@ if __name__ == '__main__':
         torch.save(target_net, './target.pt')
 
     print('Complete')
-    plot_durations(show_result=True)
+    #plot_durations(show_result=True)
     plt.ioff()
     plt.show()
 

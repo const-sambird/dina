@@ -57,6 +57,7 @@ class IndexSelectionEnv(gym.Env):
         self._virtual_index_oids = np.zeros((self.num_replicas, self.num_candidates), dtype=np.uint32)
 
         self._state = np.zeros((self.num_replicas, self.num_candidates))
+        self._previous_state = None
         
         '''
         The observation space is the set of index configurations on each replica.
@@ -98,6 +99,7 @@ class IndexSelectionEnv(gym.Env):
         super().reset(seed=seed)
 
         self._state = np.zeros((self.num_replicas, self.num_candidates))
+        self._previous_state = None
         self.spaces_used = [0 for i in range(self.num_replicas)]
         self._action_mask = np.ones((self.num_replicas * self.num_candidates * 2,), dtype=np.int8)
         self._action_mask[0:self.action_drop_threshold] = 0
@@ -195,7 +197,14 @@ class IndexSelectionEnv(gym.Env):
         observation = self._get_obs()
         info = self._get_info()
 
-        info['skew'] = 1 / skew_reward if skew_reward > 0 else 0
+        info['skew'] = 1 / (skew_reward) if skew_reward > 0 else 0
+
+        if (self._state == self._previous_state).all():
+            print('loop penalty:       5.0')
+            reward -= 5
+        else:
+            print('loop penalty:       0.0')
+        self._previous_state = self._state.copy()
 
         print(f'spaces used after this epoch: {self.spaces_used} / {self.space_budget}')
 

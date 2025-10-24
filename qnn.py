@@ -219,7 +219,7 @@ class QuantumDQN(nn.Module):
         '''
         2 - quantum circuit generation
         '''
-        
+
         feature_map = ZZFeatureMap(n_data_qubits)
         if qnn_type == 'twolocal':
             ansatz = get_twolocal_circuit(n_qubits, param_layers)
@@ -259,6 +259,9 @@ class QuantumDQN(nn.Module):
     def forward(self, x):
         x = self.encoder(x)
         x = self.torchconn(x)
+        # probability amplification
+        x = torch.logit(torch.clamp(x, 1e-6, 1-1e-6))
+        print(f'min {x.min().item()}, max {x.max().item()} (action {x.argmax().item()}), mean {x.mean().item()}')
         x = self.output_layer(x)
 
         return x
