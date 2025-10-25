@@ -352,6 +352,8 @@ def create_arguments():
     parser.add_argument('-p', '--param-layers', type=int, default=3, help='the number of repetitions of the ansatz setup')
     parser.add_argument('-E', '--encoding', type=str, choices=['angle', 'basis'], default='angle')
 
+    parser.add_argument('-r', '--run-name', type='str', default='qdina', help='a group name to use for WandB')
+
     # these ones can probably be left to the defaults
     parser.add_argument('--num-shots', type=int, default=1024, help='number of samples to take from the quantum neural network')
     parser.add_argument('--batch-size', type=int, default=32, help='the batch size to feed into the neural network')
@@ -423,6 +425,7 @@ if __name__ == '__main__':
     CANDIDATE_PATH = args.candidate_path
 
     RUN_TYPE = args.run_type
+    RUN_NAME = args.run_name
 
     '''
     ENVIRONMENT
@@ -480,7 +483,8 @@ if __name__ == '__main__':
 
     run = wandb.init(
         project='qdina',
-        name=f'{'cl' if not IS_QUANTUM else 'q' + str(NUM_QUBITS)}-n{len(replicas)}-w{maxwidth}-b{budget_gb:.1f}',
+        name=f'{RUN_NAME}-q-p{NUM_REPETITIONS}-a{MAX_ACTIONS}-o{'L' if QNN_OUTPUT == 'layer' else 'T'}' \
+             if IS_QUANTUM else f'{RUN_NAME}-cl-a{MAX_ACTIONS}',
         config={
             'EXE_MODE': EXE_MODE,
             'BATCH_SIZE': BATCH_SIZE,
@@ -511,7 +515,9 @@ if __name__ == '__main__':
             'ANSATZ': args.ansatz,
             'ANCILLA_QUBITS': args.ancilla_qubits,
             'ANCILLA_REPS': args.ancilla_reps,
-            'ENCODING': args.encoding
+            'ENCODING': args.encoding,
+            'MAX_ACTIONS': MAX_ACTIONS,
+            'RUN_NAME': RUN_NAME
         },
         mode='disabled' if args.dry_run else 'online'
     )
