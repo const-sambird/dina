@@ -352,7 +352,7 @@ def create_arguments():
     parser.add_argument('-p', '--param-layers', type=int, default=3, help='the number of repetitions of the ansatz setup')
     parser.add_argument('-E', '--encoding', type=str, choices=['angle', 'basis'], default='angle')
 
-    parser.add_argument('-r', '--run-name', type='str', default='qdina', help='a group name to use for WandB')
+    parser.add_argument('-r', '--run-name', type=str, default='qdina', help='a group name to use for WandB')
 
     # these ones can probably be left to the defaults
     parser.add_argument('--num-shots', type=int, default=1024, help='number of samples to take from the quantum neural network')
