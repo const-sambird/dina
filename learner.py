@@ -107,12 +107,13 @@ def plot_durations(show_result=False):
 
     plt.pause(0.001)  # pause a bit so that plots are updated
 
+@torch.no_grad()
 def plot_bitstrings(probabilities):
     plt.figure(1)
     plt.clf()
     plt.xlabel('Action')
     plt.ylabel('Probability')
-    plt.plot(probabilities.numpy()[0])
+    plt.plot(probabilities.detach().numpy()[0])
     plt.pause(0.001)
 
 has_gradients = False
@@ -174,9 +175,8 @@ def optimize_model():
     # Optimize the model
 
     if IS_QUANTUM:
-        if QNN_OUTPUT == 'layer':
-            class_optimizer.step(closure)
-
+        #if QNN_OUTPUT == 'layer':
+        #    class_optimizer.step(closure)
         quant_optimizer.step(closure)
     else:
         optimizer.zero_grad()
@@ -559,9 +559,9 @@ if __name__ == '__main__':
     target_net.load_state_dict(policy_net.state_dict())
 
     if IS_QUANTUM:
-        quant_optimizer = SPSAOptimiser(policy_net.torchconn.parameters())
-        if QNN_OUTPUT == 'layer':
-            class_optimizer = SPSAOptimiser(policy_net.output_layer.parameters())
+        quant_optimizer = SPSAOptimiser(policy_net, LEARNING_RATE, device=device)
+        #if QNN_OUTPUT == 'layer':
+        #    class_optimizer = SPSAOptimiser(policy_net.output_layer.parameters())
     else:
         optimizer = optim.AdamW(policy_net.parameters(), lr=LEARNING_RATE, amsgrad=True)
     memory = ReplayMemory(REPLAY_BUFFER_SIZE)
