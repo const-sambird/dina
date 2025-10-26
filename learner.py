@@ -143,54 +143,44 @@ def optimize_model():
     action_batch = torch.cat(batch.action)
     reward_batch = torch.cat(batch.reward)
 
-    # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
-    # columns of actions taken. These are the actions which would've been taken
-    # for each batch state according to policy_net
-    state_action_values = policy_net(state_batch).gather(1, action_batch)
-
-    # Compute V(s_{t+1}) for all next states.
-    # Expected values of actions for non_final_next_states are computed based
-    # on the "older" target_net; selecting their best reward with max(1).values
-    # This is merged based on the mask, such that we'll have either the expected
-    # state value or 0 in case the state was final.
-    next_state_values = torch.zeros(BATCH_SIZE, device=device)
-    with torch.no_grad():
-        if non_final_next_states is not None:
-            q_next = target_net(non_final_next_states)
-            if non_final_next_masks is not None:
-                q_next = q_next.masked_fill(non_final_next_masks == 0, -1e9)
-            next_state_values[non_final_mask] = q_next.max(1).values
-    # Compute the expected Q values
-    expected_state_action_values = (next_state_values * DISCOUNT_RATE) + reward_batch
-
-    # Compute Huber loss
     criterion = nn.SmoothL1Loss()
-    loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
 
-    # Optimize the model
-
-    def quantum_closure():
-        quant_optimizer.zero_grad()
+    def closure():
+        # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
+        # columns of actions taken. These are the actions which would've been taken
+        # for each batch state according to policy_net
         state_action_values = policy_net(state_batch).gather(1, action_batch)
+
+        # Compute V(s_{t+1}) for all next states.
+        # Expected values of actions for non_final_next_states are computed based
+        # on the "older" target_net; selecting their best reward with max(1).values
+        # This is merged based on the mask, such that we'll have either the expected
+        # state value or 0 in case the state was final.
         next_state_values = torch.zeros(BATCH_SIZE, device=device)
         with torch.no_grad():
             if non_final_next_states is not None:
-                next_state_values[non_final_mask] = target_net(non_final_next_states).max(1).values
+                q_next = target_net(non_final_next_states)
+                if non_final_next_masks is not None:
+                    q_next = q_next.masked_fill(non_final_next_masks == 0, -1e9)
+                next_state_values[non_final_mask] = q_next.max(1).values
+        # Compute the expected Q values
         expected_state_action_values = (next_state_values * DISCOUNT_RATE) + reward_batch
+
+        # Compute Huber loss
         loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+
         return loss
+
+    # Optimize the model
 
     if IS_QUANTUM:
         if QNN_OUTPUT == 'layer':
-            class_optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
-            class_optimizer.step()
+            class_optimizer.step(closure)
 
-        quant_optimizer.step(quantum_closure)
+        quant_optimizer.step(closure)
     else:
         optimizer.zero_grad()
-        loss.backward()
+        closure().backward()
         # In-place gradient clipping
         torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
         optimizer.step()
@@ -571,7 +561,7 @@ if __name__ == '__main__':
     if IS_QUANTUM:
         quant_optimizer = SPSAOptimiser(policy_net.torchconn.parameters())
         if QNN_OUTPUT == 'layer':
-            class_optimizer = optim.AdamW(policy_net.output_layer.parameters())
+            class_optimizer = SPSAOptimiser(policy_net.output_layer.parameters())
     else:
         optimizer = optim.AdamW(policy_net.parameters(), lr=LEARNING_RATE, amsgrad=True)
     memory = ReplayMemory(REPLAY_BUFFER_SIZE)
