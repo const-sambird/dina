@@ -259,8 +259,6 @@ class QuantumDQN(nn.Module):
     def forward(self, x):
         x = self.encoder(x)
         x = self.torchconn(x)
-        # probability amplification
-        x = torch.logit(torch.clamp(x, 1e-6, 1-1e-6))
         x = self.output_layer(x)
 
         return x
