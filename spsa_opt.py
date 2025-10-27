@@ -11,9 +11,9 @@ class SPSAOptimiser:
         self.model = model
         self.lr = lr
         self.spsa = spsa or SPSA(
-            maxiter=1,
-            learning_rate=lr,
-            perturbation=1e-3
+            maxiter=100,
+            #learning_rate=lr,
+            #perturbation=1e-3
         )
 
         # Keep shapes to re-slice flat vectors into parameter tensors.
