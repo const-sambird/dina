@@ -175,8 +175,6 @@ def optimize_model():
     # Optimize the model
 
     if IS_QUANTUM:
-        #if QNN_OUTPUT == 'layer':
-        #    class_optimizer.step(closure)
         quant_optimizer.step(closure)
     else:
         optimizer.zero_grad()
@@ -368,6 +366,7 @@ def create_arguments():
     parser.add_argument('--training-set', type=str, default='/proj/qdina-PG0/dina-set/h/train', help='the location of the training set queries')
     parser.add_argument('--max-actions', type=int, default=None, help='limit the number of actions to a given value')
     parser.add_argument('--candidate-path', type=str, default=None, help='path to a list of space-separated index candidates')
+    parser.add_argument('--spsa-iterations', type=int, default=1, help='number of iterations for SPSA to conduct each optimisation step')
 
     parser.add_argument('--ancilla-qubits', type=int)
     parser.add_argument('--ancilla-reps', type=int)
@@ -413,6 +412,7 @@ if __name__ == '__main__':
     TRAINING_SET_LOCATION = args.training_set
     MAX_ACTIONS = args.max_actions
     CANDIDATE_PATH = args.candidate_path
+    SPSA_ITERATIONS = args.spsa_iterations
 
     RUN_TYPE = args.run_type
     RUN_NAME = args.run_name
@@ -559,7 +559,7 @@ if __name__ == '__main__':
     target_net.load_state_dict(policy_net.state_dict())
 
     if IS_QUANTUM:
-        quant_optimizer = SPSAOptimiser(policy_net, LEARNING_RATE, device=device)
+        quant_optimizer = SPSAOptimiser(policy_net, LEARNING_RATE, maxiter=SPSA_ITERATIONS, device=device)
         #if QNN_OUTPUT == 'layer':
         #    class_optimizer = SPSAOptimiser(policy_net.output_layer.parameters())
     else:

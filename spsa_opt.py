@@ -7,11 +7,11 @@ class SPSAOptimiser:
     A PyTorch-compatible wrapper for Qiskit's SPSA optimizer.
     Supports both CPU and GPU tensors and uses SPSA.minimize().
     """
-    def __init__(self, model, lr=0.01, spsa=None, perturbation=0.01, device=None):
+    def __init__(self, model, lr=1e-1, spsa=None, perturbation=0.01, maxiter=100, device=None):
         self.model = model
         self.lr = lr
         self.spsa = spsa or SPSA(
-            maxiter=100,
+            maxiter=maxiter,
             learning_rate=1e-1,
             perturbation=1e-1
         )
