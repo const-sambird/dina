@@ -214,12 +214,13 @@ def learn(router: Router):
             # Move to the next state
             state = next_state
 
-            tic_opt = time.time()
-            # Perform one step of the optimization (on the policy network)
-            optimize_model()
-            toc_opt = time.time()
-            print(f'optimisation this step took {toc_opt - tic_opt} seconds')
-            opt_times.append(toc_opt - tic_opt)
+            if not END_OF_EPISODE_UPDATE:
+                tic_opt = time.time()
+                # Perform one step of the optimization (on the policy network)
+                optimize_model()
+                toc_opt = time.time()
+                print(f'optimisation this step took {toc_opt - tic_opt} seconds')
+                opt_times.append(toc_opt - tic_opt)
 
             # Soft update of the target network's weights
             # θ′ ← τ θ + (1 −τ )θ′
@@ -230,6 +231,13 @@ def learn(router: Router):
             target_net.load_state_dict(target_net_state_dict)
 
             if done:
+                if END_OF_EPISODE_UPDATE:
+                    tic_opt = time.time()
+                    # Perform one step of the optimization (on the policy network)
+                    optimize_model()
+                    toc_opt = time.time()
+                    print(f'optimisation this step took {toc_opt - tic_opt} seconds')
+                    opt_times.append(toc_opt - tic_opt)
                 episode_durations.append(t + 1)
                 eps_threshold = EPS_END + (EPS_START - EPS_END) * \
                     math.exp(-1. * i_episode / EPS_DECAY)
@@ -367,6 +375,7 @@ def create_arguments():
     parser.add_argument('--max-actions', type=int, default=None, help='limit the number of actions to a given value')
     parser.add_argument('--candidate-path', type=str, default=None, help='path to a list of space-separated index candidates')
     parser.add_argument('--spsa-iterations', type=int, default=1, help='number of iterations for SPSA to conduct each optimisation step')
+    parser.add_argument('--end-of-episode-update', action='store_true', help='only update the network weights at the end of each learning episode')
 
     parser.add_argument('--ancilla-qubits', type=int)
     parser.add_argument('--ancilla-reps', type=int)
@@ -413,6 +422,7 @@ if __name__ == '__main__':
     MAX_ACTIONS = args.max_actions
     CANDIDATE_PATH = args.candidate_path
     SPSA_ITERATIONS = args.spsa_iterations
+    END_OF_EPISODE_UPDATE = args.end_of_episode_update
 
     RUN_TYPE = args.run_type
     RUN_NAME = args.run_name
