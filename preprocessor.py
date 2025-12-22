@@ -4,6 +4,7 @@ from query_loader import load_candidates
 from itertools import permutations
 from profiling import Profiler
 from database import Replica
+from heuristic import CandidateLimitingHeuristic
 
 class Preprocessor:
     def __init__(self, profiler: Profiler, database: Replica, max_index_width: int, queries: list[str], templates: list[int]):
@@ -92,4 +93,7 @@ class Preprocessor:
     
     def limit_candidate_size(self, max_candidates):
         if max_candidates >= len(self.candidates): return
-        self.candidates = random.sample(self.candidates, max_candidates)
+        
+        candidates = list(zip(self.candidates, [self.cols_to_table[c[0]] for c in self.candidates]))
+        heuristic = CandidateLimitingHeuristic(self.database, candidates, self.workload, max_candidates)
+        self.candidates = heuristic.get_candidates()
