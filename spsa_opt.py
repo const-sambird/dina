@@ -68,6 +68,7 @@ class SPSAOptimiser:
 
         # Call the current Qiskit API: minimize(objective, x0=initial_point)
         # The SPSA instance's maxiter controls how many internal iterations occur.
+        self.spsa.initial_hessian = np.identity(theta_np.size, dtype=np.float16)
         result = self.spsa.minimize(eval_loss, x0=theta_np)
 
         # result is an OptimizerResult-like object; final parameters live in result.x
