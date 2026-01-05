@@ -569,9 +569,9 @@ if __name__ == '__main__':
     target_net.load_state_dict(policy_net.state_dict())
 
     if IS_QUANTUM:
-        quant_optimizer = SPSAOptimiser(policy_net, LEARNING_RATE, maxiter=SPSA_ITERATIONS, device=device)
-        #if QNN_OUTPUT == 'layer':
-        #    class_optimizer = SPSAOptimiser(policy_net.output_layer.parameters())
+        quant_optimizer = SPSAOptimiser(policy_net.torchconn, LEARNING_RATE, maxiter=SPSA_ITERATIONS, device=device)
+        if QNN_OUTPUT == 'layer':
+            class_optimizer = optim.AdamW(policy_net.output_layer.parameters(), lr=LEARNING_RATE, amsgrad=True)
     else:
         optimizer = optim.AdamW(policy_net.parameters(), lr=LEARNING_RATE, amsgrad=True)
     memory = ReplayMemory(REPLAY_BUFFER_SIZE)
