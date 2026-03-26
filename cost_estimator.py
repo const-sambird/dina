@@ -40,9 +40,10 @@ class CostEstimator:
 
             for idx, query in enumerate(queries):
                 for statement in query.split(';'):
+                    statement = statement.lower()
                     if 'create view' in statement or 'drop view' in statement:
                         cur.execute(statement)
-                    elif 'select' in statement:
+                    elif 'select' in statement or 'update' in statement or 'insert' in statement or 'delete' in statement:
                         cur.execute('EXPLAIN (FORMAT JSON) %s' % statement)
                         if after_timing := cur.fetchone()[0][0]['Plan']['Total Cost']:
                             costs[templates[idx]] += float(after_timing)

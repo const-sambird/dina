@@ -452,6 +452,7 @@ if __name__ == '__main__':
     
     queries = [update_query_text(query) for query in queries]
     manager = WorkloadManager(queries, templates, RUN_TYPE, TRAIN_FRACTION)
+    manager.sort()
 
     random.seed(SEED)
     if SEED is not None:

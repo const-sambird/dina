@@ -27,7 +27,7 @@ def extract_table_from_query_aa(query, coldict):
             return t
         
 def extract_columns_from_query(query, coldict):
-    REGEX = 'WHERE (.+?) (?:\\)|group by|order by)'
+    REGEX = 'WHERE (.+?)(?:\\)|group by|order by|;)'
     columns = {}
 
     predicates = re.findall(REGEX, query, re.IGNORECASE)

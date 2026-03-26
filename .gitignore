@@ -9,3 +9,4 @@ results/
 wandb/
 wandb.env
 workload/
+tpcc-workload/

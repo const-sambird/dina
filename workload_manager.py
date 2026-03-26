@@ -18,6 +18,11 @@ class WorkloadManager:
         '''
         self._workload = workload
         self._templates = templates
+        self._analytical_workload = []
+        self._analytical_templates = []
+        self._update_workload = []
+        self._update_templates = []
+        self._unique_update_temps = set()
         self._partial_workload = workload
         self._partial_templates = templates
         self._full_workload = workload
@@ -80,6 +85,12 @@ class WorkloadManager:
         :returns: the template assignment to each query
         '''
         return self._templates
+
+    def queries(self) -> tuple[list[str], list[int]]:
+        return self._analytical_workload, self._analytical_templates
+    
+    def updates(self) -> tuple[list[str], list[int]]:
+        return self._update_workload, self._update_templates
     
     def num_queries(self) -> int:
         '''
@@ -129,3 +140,17 @@ class WorkloadManager:
         :returns templates: which template numbers are used
         '''
         return sorted(list(set(self._partial_templates)))
+    
+    def sort(self):
+        for i, statement in enumerate(self._workload):
+            if 'select' in statement.lower():
+                self._analytical_workload.append(statement)
+                self._analytical_templates.append(self._templates[i])
+            else:
+                self._update_workload.append(statement)
+                self._update_templates.append(self._templates[i])
+                self._unique_update_temps.add(self._templates[i])
+        print(len(self._analytical_workload), 'analytical queries;', len(self._update_workload), 'update queries')
+    
+    def update_templates(self):
+        return self._unique_update_temps

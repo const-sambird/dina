@@ -131,10 +131,16 @@ class Router:
         self.routes = np.argmin(self.times, axis=0)
         self.query_costs = [self.times[rep][i] for i, rep in enumerate(self.routes)]
 
+        # if this template is in the update workload, we need to route it to every replica
+        update_templates = self.workload_manager.update_templates()
+        for template in range(self.num_templates):
+            if template in update_templates:
+                self.routes[template] = -1
+
         for replica in range(self.num_replicas):
             self.replica_costs[replica] = 0
             for template in range(self.num_templates):
-                if self.routes[template] == replica:
+                if self.routes[template] == replica or self.routes[template] == -1:
                     self.replica_costs[replica] += self.query_costs[template]
         
         # if a template isn't present in the training set (it has a cost of zero)
