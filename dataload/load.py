@@ -1,5 +1,6 @@
 import os
 import argparse
+import logging
 from gen import TPCHGenerator, Connection, Replica
 
 def get_replicas(path: str):
@@ -26,10 +27,14 @@ def parse_arguments():
     parser.add_argument('-d', '--data-dir', type=str, default='/pgdata', help='where the data root is')
     parser.add_argument('-s', '--scale-factor', type=int, help='the scale factor')
     parser.add_argument('-r', '--replica-path', type=str, default='../replicas.csv', help='the location of replicas.csv')
+    parser.add_argument('-v', '--verbose', action='store_true')
 
     return parser.parse_args()
 
 def initiate_load(args):
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+
     base = os.path.dirname(os.path.realpath(__file__))
     data_dir = os.path.join(base, args.data_dir)
     data_dir = os.path.normpath(data_dir)
@@ -38,7 +43,7 @@ def initiate_load(args):
 
     generator = TPCHGenerator(replicas, data_dir, args.scale_factor)
 
-    print('!! starting table load, scale factor', args.scale_factor)
+    logging.info('!! starting table load, scale factor', args.scale_factor)
 
     generator.load_database()
 
