@@ -41,3 +41,8 @@ def initiate_load(args):
     print('!! starting table load, scale factor', args.scale_factor)
 
     generator.load_database()
+
+if __name__ == '__main__':
+    args = parse_arguments()
+
+    initiate_load(args)
