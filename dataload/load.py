@@ -25,8 +25,8 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-d', '--data-dir', type=str, default='/pgdata', help='where the data root is')
-    parser.add_argument('-s', '--scale-factor', type=int, help='the scale factor')
-    parser.add_argument('-r', '--replica-path', type=str, default='../replicas.csv', help='the location of replicas.csv')
+    parser.add_argument('-s', '--scale-factor', type=int, default=30, help='the scale factor')
+    parser.add_argument('-r', '--replica-path', type=str, default='replicas.csv', help='the location of replicas.csv')
     parser.add_argument('-v', '--verbose', action='store_true')
 
     return parser.parse_args()
@@ -43,7 +43,7 @@ def initiate_load(args):
 
     generator = TPCHGenerator(replicas, data_dir, args.scale_factor)
 
-    logging.info('!! starting table load, scale factor', args.scale_factor)
+    logging.info(f'!! starting table load, scale factor {args.scale_factor}')
 
     generator.load_database()
 
